@@ -1,0 +1,20 @@
+data :
+  name: SHOMRI 
+  data_dir: /projects/prjs1633/anomaly_detection/SHOMRI/
+  image_size: 128 
+  batch_size: 1
+  mask : False 
+  imput_channel : 1
+
+model:
+  checkpoint_dir: checkpoints/SHOMRI
+  resnet: resnet50
+  learning_rate: 3e-4 
+  weight_decay: 0.05 
+  epochs: 2000 
+  epochs_checkpoint: 100
+  diffusion_steps: 1000
+  beta_start : 0.0001
+  beta_end : 0.02 
+  device: 'cuda'
+  num_workers : 8
