@@ -204,7 +204,6 @@ class SHOMRI(Dataset):
     def __getitem__(self, index: int) -> Any:
         image_file = self.image_files[index]
         
-        # Load the NIfTI file and get the data as a numpy array
         image_data = nib.load(image_file).get_fdata()
         image = self.image_transform(image_data)
         
