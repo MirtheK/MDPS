@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 from src.models.unet import UNetModel
 from src.models.resnet import Resnet
-from src.dataset import MVTec, BTAD
+from src.dataset import SHOMRI
 from src.metrics import metric
 from src.compare import distance
 from src.diffusion import sample, sample_mask, compute_alpha
@@ -32,10 +32,9 @@ def mdps(args):
             config = config,
             is_train=False,
     )
-    if config.data.name == 'BTAD':
-        test_dataset = BTAD(
+    if config.data.name == 'SHOMRI':
+        test_dataset = SHOMRI(
             root= config.data.data_dir,
-            category=config.data.category,
             config = config,
             is_train=False,
         )

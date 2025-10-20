@@ -3,7 +3,7 @@ import numpy as np
 
 def diffusion_loss(model, x_0, t, config):
     x_0 = x_0.to(config.model.device)
-    betas = np.linspace(config.model.beta_start, config.model.beta_end, config.model.diffusion_steps, dtype=np.float64)
+    betas = np.linspace(config.model.beta_start, config.model.beta_end, config.model.diffusion_steps, dtype=np.float32)
     betas_tensor = torch.tensor(betas, dtype=torch.float32, device=config.model.device)
     noise = torch.randn_like(x_0, device=x_0.device)
     alpha_t = (1 - betas_tensor).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1, 1)
@@ -84,7 +84,7 @@ def condition_score(model, xt, et, x_guidance, t, config):
     return test_grad
 
 def compute_alpha(t, config):
-    betas = np.linspace(config.model.beta_start, config.model.beta_end, config.model.diffusion_steps, dtype=np.float64)
+    betas = np.linspace(config.model.beta_start, config.model.beta_end, config.model.diffusion_steps, dtype=np.float32)
     betas = torch.tensor(betas).type(torch.float)
     beta = torch.cat([torch.zeros(1).to(betas.device), betas], dim=0)
     beta = beta.to(config.model.device)

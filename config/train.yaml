@@ -1,6 +1,7 @@
 data :
   name: SHOMRI 
   data_dir: /projects/prjs1633/anomaly_detection/SHOMRI/
+  category: test
   image_size: 128 
   batch_size: 1
   mask : False 

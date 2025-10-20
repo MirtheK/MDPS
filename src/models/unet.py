@@ -229,7 +229,6 @@ class ResBlock(TimestepBlock):
 
 
 class UNetModel(nn.Module):
-    # UNet model
     def __init__(
             self,
             img_size,
@@ -244,7 +243,7 @@ class UNetModel(nn.Module):
             biggan_updown=True,
             in_channels=1
             ):
-        self.dtype = torch.float16
+        self.dtype = torch.float32
         super().__init__()
 
         if channel_mults == "":
@@ -274,7 +273,7 @@ class UNetModel(nn.Module):
         self.channel_mult = channel_mults
         self.conv_resample = conv_resample
 
-        self.dtype = torch.float16
+        self.dtype = torch.float32
         self.num_heads = n_heads
         self.num_head_channels = n_head_channels
 

@@ -167,14 +167,14 @@ import torch.nn.functional as F
 #         return x.squeeze(0)
 
 # class ToTensor3d:
-    """
-    Converts a numpy array to a PyTorch tensor and adds a channel dimension.
-    Assumes input is a 3D numpy array (D, H, W) and converts to (1, D, H, W).
-    """
-    def __call__(self, x: np.ndarray) -> torch.Tensor:
-        x = torch.from_numpy(x).float()
-        x = x.unsqueeze(0)
-        return x
+    # """
+    # Converts a numpy array to a PyTorch tensor and adds a channel dimension.
+    # Assumes input is a 3D numpy array (D, H, W) and converts to (1, D, H, W).
+    # """
+    # def __call__(self, x: np.ndarray) -> torch.Tensor:
+    #     x = torch.from_numpy(x).float()
+    #     x = x.unsqueeze(0)
+    #     return x
 
 
 # class SHOMRI(Dataset):
@@ -255,9 +255,10 @@ from monai.transforms import (
     LoadImaged,
     ScaleIntensityRanged,
     RandSpatialCropd,
-    AddChanneld,
     ToTensorD,
     EnsureTypeD,
+    ResizeD,
+    EnsureChannelFirstd
 )
 from monai.data import CacheDataset
 
@@ -278,16 +279,15 @@ def get_data_list(root_dir: str, image_key: str, mask_key: str, is_train: bool) 
         normal_images = glob.glob(os.path.join(root_dir, "test", "NORMAL", "*.nii.gz"))
         for img_path in normal_images:
 
-            data_list.append({image_key: img_path, mask_key: "zero_mask", "label": "good"})
+            data_list.append({image_key: img_path, mask_key: "/projects/prjs1633/anomaly_detection/SHOMRI/zero_mask.nii.gz", "label": "good"})
 
 
         defective_images = glob.glob(os.path.join(root_dir, "test", "ABNORMAL", "*.nii.gz"))
         for img_path in defective_images:
             # Construct the path to the ground truth mask file
             mask_path = img_path.replace("/test/", "/ground_truth/").replace(".nii.gz", "_mask.nii.gz")
-            # Handle case where mask file might not exist (optional fallback)
             if not os.path.exists(mask_path):
-                mask_path = "zero_mask" # Use dummy for missing mask
+                mask_path = "/projects/prjs1633/anomaly_detection/SHOMRI/one_mask.nii.gz" # Use dummy for mask, mask is now array of ones
                 
             data_list.append({image_key: img_path, mask_key: mask_path, "label": "defective"})
 
@@ -313,23 +313,29 @@ class SHOMRI(Dataset):
         keys_to_load = [self.image_key]
         if not is_train:
             keys_to_load.append(self.mask_key)
-        
-        transforms = Compose(
-           , a_min=0.0, a_max=255.0, b_min=-1.0, b_max=1.0, clip=True # Normalized to (-1, 1)
-                ),
-                RandSpatialCropd(
-                    keys=keys_to_load,
-                    roi_size=self.image_size,
-                    random_size=False,
-                    random_state=42, # Ensure reproducibility
-                ),
-                EnsureTypeD(keys=keys_to_load),
-            
-        
 
+        base_transforms = [
+            LoadImaged(keys=self.image_key), 
+            EnsureChannelFirstd(keys=self.image_key), 
+            ResizeD(keys=self.image_key, spatial_size=(config.data.image_size,config.data.image_size,config.data.image_size)),
+            ScaleIntensityRanged(keys=self.image_key, a_min=-1.0, a_max=1.0),
+        ]
+
+        if is_train:
+            self.transforms = Compose(base_transforms)
+            
+        else:
+            mask_transforms = [
+                LoadImaged(keys=self.mask_key), 
+                EnsureChannelFirstd(keys=self.mask_key),
+                ResizeD(keys=self.mask_key, spatial_size=(config.data.image_size,config.data.image_size,config.data.image_size), mode="nearest")
+            ]
+            self.transforms = Compose(base_transforms + mask_transforms)
+            
+            
         self.monai_dataset = CacheDataset(
             data=data_list,
-            transform=transforms,
+            transform=self.transforms,
             cache_rate=1.0, 
             num_workers=4
         )
@@ -350,5 +356,6 @@ class SHOMRI(Dataset):
             target_mask = torch.zeros_like(image) 
             return image, target_mask, label
         else:
-            target_mask = (data[self.mask_key] > 0).float()
+            # target_mask = (data[self.mask_key] > 0).float()
+            target_mask = (torch.ones_like(image))
             return image, target_mask, label
