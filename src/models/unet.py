@@ -158,7 +158,7 @@ class QKVAttention(nn.Module):
         scale = 1 / math.sqrt(math.sqrt(ch))
         weight = torch.einsum(
                 "bct,bcs->bts", q * scale, k * scale
-                )  # More stable with f16 than dividing afterwards
+                ) 
         weight = torch.softmax(weight, dim=-1).type(weight.dtype)
         a = torch.einsum("bts,bcs->bct", weight, v)
         return a.reshape(bs, -1, length)

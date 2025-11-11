@@ -1,30 +1,32 @@
 import torch
 from torch import Tensor
 import torch.nn as nn
+from collections import OrderedDict
 try:
     from torch.hub import load_state_dict_from_url
 except ImportError:
     from torch.utils.model_zoo import load_url as load_state_dict_from_url
 from typing import Type, Any, Callable, Union, List, Optional
 import torch.nn.functional as F
+import logging
 
-__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
-           'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
-           'wide_resnet50_2', 'wide_resnet101_2']
+__all__ = ['resnet34', 'resnet50']
 
 
 model_urls = {
-    # 'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
-    'resnet34': 'resnet34.pth',
-    'resnet50': '/projects/prjs1633/repositories/MDPS/src/models/resnet_50.pth',
-    # 'resnet101': 'https://download.pytorch.org/models/resnet101-63fe2227.pth',
-    # 'resnet152': 'https://download.pytorch.org/models/resnet152-394f9c45.pth',
-    # 'resnext50_32x4d': 'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth',
-    # 'resnext101_32x8d': 'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth',
-    # 'wide_resnet50_2': 'https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth',
-    # 'wide_resnet101_2': 'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth',
+#     'resnet34': '/projects/prjs1633/repositories/MDPS/src/models/resnet34.pth',
+#     'resnet50': '/projects/prjs1633/repositories/MDPS/src/models/resnet_50_23dataset.pth',
+# }
+    'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
+    'resnet34': 'https://download.pytorch.org/models/resnet34-b627a593.pth',
+    'resnet50': 'https://download.pytorch.org/models/resnet50-0676ba61.pth',
+    'resnet101': 'https://download.pytorch.org/models/resnet101-63fe2227.pth',
+    'resnet152': 'https://download.pytorch.org/models/resnet152-394f9c45.pth',
+    'resnext50_32x4d': 'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth',
+    'resnext101_32x8d': 'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth',
+    'wide_resnet50_2': 'https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth',
+    'wide_resnet101_2': 'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth',
 }
-
 
 def conv3x3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv3d:
     """3x3 convolution with padding"""
@@ -143,26 +145,7 @@ class Bottleneck(nn.Module):
 
         return out
 
-# class AttentionBlock(nn.Module):
-#     def __init__(self, in_channels):
-#         super(AttentionBlock, self).__init__()
-#         self.query_conv = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
-#         self.key_conv = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
-#         self.value_conv = nn.Conv2d(in_channels, in_channels, kernel_size=1)
-#         self.gamma = nn.Parameter(torch.zeros(1))
 
-#     def forward(self, x):
-#         batch_size, channels, height, width = x.size()
-
-#         query = self.query_conv(x).view(batch_size, -1, height * width).permute(0, 2, 1)
-#         key = self.key_conv(x).view(batch_size, -1, height * width)
-#         value = self.value_conv(x).view(batch_size, -1, height * width)
-
-#         attention_weights = F.softmax(torch.matmul(query, key), dim=-1)
-#         attended_values = torch.matmul(value, attention_weights).view(batch_size, channels, height, width)
-
-#         out = self.gamma * attended_values + x
-#         return out
 
 class ResNet(nn.Module):
 
@@ -191,7 +174,7 @@ class ResNet(nn.Module):
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group       
-        self.conv1 = nn.Conv3d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv1 = nn.Conv3d(1, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
@@ -217,8 +200,7 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-        # Zero-initialize the last BN in each residual branch,
-        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
+      
         # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
         if zero_init_residual:
             for m in self.modules():
@@ -279,31 +261,6 @@ class ResNet(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
 
-# class Resnet_attn(nn.Module):
-#     def __init__(self, pretrained_resnet):
-#         super(Resnet_attn, self).__init__()
-#         self.resnet = pretrained_resnet
-#         self.attn1 = AttentionBlock(256)
-#         self.attn2 = AttentionBlock(512)
-#         self.attn3 = AttentionBlock(1024)
-#         self.attn4 = AttentionBlock(2048)
-#         self.resnet.layer1.add_module("attention", self.attn1)
-#         self.resnet.layer2.add_module("attention", self.attn2)
-#         self.resnet.layer3.add_module("attention", self.attn3)
-#         self.resnet.layer4.add_module("attention", self.attn4)
-
-#     def forward(self, x):
-#         x = self.resnet.conv1(x)
-#         x = self.resnet.bn1(x)
-#         x = self.resnet.relu(x)
-#         x = self.resnet.maxpool(x)
-
-#         feature_a = self.resnet.layer1(x)  # torch.Size([4, 256, 64, 64])
-#         feature_b = self.resnet.layer2(feature_a) # torch.Size([4, 512, 32, 32])
-#         feature_c = self.resnet.layer3(feature_b) # torch.Size([4, 1024, 16, 16])
-#         feature_d = self.resnet.layer4(feature_c) # torch.Size([4, 2048, 8, 8])
-
-#         return [feature_a, feature_b, feature_c]
         
 def _resnet(
     arch: str,
@@ -315,25 +272,20 @@ def _resnet(
 ) -> ResNet:
     model = ResNet(block, layers, **kwargs)
     if pretrained:
-        state_dict = torch.load(model_urls[arch], weights_only=True)
-        # state_dict = torch.load(model_urls[arch])
-        #for k,v in list(state_dict.items()):
-        #    if 'layer4' in k or 'fc' in k:
-        #        state_dict.pop(k)
+        state_dict = load_state_dict_from_url(model_urls[arch],
+                                        progress=progress)
         model.load_state_dict(state_dict)
-        # model = Resnet_attn(model)
+        # checkpoint = torch.load(model_urls[arch])
+        # # state_dict = checkpoint["state_dict"] 
+        # new_state_dict = OrderedDict()
+        # for k, v in checkpoint['state_dict'].items():
+        #     new_key = k.replace('module.', '')  
+        #     new_state_dict[new_key] = v
+        # missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
+        # print("Missing keys:", missing)
+        # print("Unexpected keys:", unexpected)
     return model
 
-
-# def resnet18(pretrained: bool = False, progress: bool = True,**kwargs: Any) -> ResNet:
-#     r"""ResNet-18 model from
-#     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
-#     Args:
-#         pretrained (bool): If True, returns a model pre-trained on ImageNet
-#         progress (bool): If True, displays a progress bar of the download to stderr
-#     """
-#     return _resnet('resnet18', BasicBlock, [2, 2, 2, 2], pretrained, progress,
-#                    **kwargs)
 
 
 def resnet34(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:
@@ -357,27 +309,6 @@ def resnet50(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> 
     return _resnet('resnet50', Bottleneck, [3, 4, 6, 3], pretrained, progress,
                    **kwargs)
 
-
-# def resnet101(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:
-#     r"""ResNet-101 model from
-#     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
-#     Args:
-#         pretrained (bool): If True, returns a model pre-trained on ImageNet
-#         progress (bool): If True, displays a progress bar of the download to stderr
-#     """
-#     return _resnet('resnet101', Bottleneck, [3, 4, 23, 3], pretrained, progress,
-#                    **kwargs)
-
-
-# def resnet152(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:
-#     r"""ResNet-152 model from
-#     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
-#     Args:
-#         pretrained (bool): If True, returns a model pre-trained on ImageNet
-#         progress (bool): If True, displays a progress bar of the download to stderr
-#     """
-#     return _resnet('resnet152', Bottleneck, [3, 8, 36, 3], pretrained, progress,
-#                    **kwargs)
 
 
 def resnext50_32x4d(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> ResNet:

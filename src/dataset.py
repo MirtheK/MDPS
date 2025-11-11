@@ -11,79 +11,79 @@ from torch.utils.data import Dataset
 import nibabel as nib
 import torch.nn.functional as F
 
-# class MVTec(torch.utils.data.Dataset):
-#     def __init__(self, root, category, config, is_train=True):
-#         self.image_transform = transforms.Compose(
-#             [
-#                 transforms.Resize((config.data.image_size, config.data.image_size)),  
-#                 transforms.ToTensor(), 
-#                 transforms.Lambda(lambda t: (t * 2) - 1)
-#             ]
-#         )
-#         self.config = config
-#         self.mask_transform = transforms.Compose(
-#             [
-#                 transforms.Resize((config.data.image_size, config.data.image_size)),
-#                 transforms.ToTensor(),
-#             ]
-#         )
-#         if is_train:
-#             if category:
-#                 self.image_files = glob(
-#                     os.path.join(root, category, "train", "good", "*.png")
-#                 )
-#             else:
-#                 self.image_files = glob(
-#                     os.path.join(root, "train", "good", "*.png")
-#                 )
-#         else:
-#             if category:
-#                 self.image_files = glob(os.path.join(root, category, "test", "*", "*.png"))
-#             else:
-#                 self.image_files = glob(os.path.join(root, "test", "*", "*.png"))
-#         self.is_train = is_train
+class MVTec(torch.utils.data.Dataset):
+    def __init__(self, root, category, config, is_train=True):
+        self.image_transform = transforms.Compose(
+            [
+                transforms.Resize((config.data.image_size, config.data.image_size)),  
+                transforms.ToTensor(), 
+                transforms.Lambda(lambda t: (t * 2) - 1)
+            ]
+        )
+        self.config = config
+        self.mask_transform = transforms.Compose(
+            [
+                transforms.Resize((config.data.image_size, config.data.image_size)),
+                transforms.ToTensor(),
+            ]
+        )
+        if is_train:
+            if category:
+                self.image_files = glob(
+                    os.path.join(root, category, "train", "good", "*.png")
+                )
+            else:
+                self.image_files = glob(
+                    os.path.join(root, "train", "good", "*.png")
+                )
+        else:
+            if category:
+                self.image_files = glob(os.path.join(root, category, "test", "*", "*.png"))
+            else:
+                self.image_files = glob(os.path.join(root, "test", "*", "*.png"))
+        self.is_train = is_train
 
-#     def __getitem__(self, index):
-#         image_file = self.image_files[index]
-#         image = Image.open(image_file)
-#         image = self.image_transform(image)
-#         if(image.shape[0] == 1):
-#             image = image.expand(3, self.config.data.image_size, self.config.data.image_size)
-#         if self.is_train:
-#             label = 'good'
-#             return image, label
-#         else:
-#             if self.config.data.mask:
-#                 if os.path.dirname(image_file).endswith("good"):
-#                     target = torch.zeros([1, image.shape[-2], image.shape[-1]])
-#                     label = 'good'
-#                 else :
-#                     if self.config.data.name == 'MVTec':
-#                         target = Image.open(
-#                             image_file.replace("/test/", "/ground_truth/").replace(
-#                                 ".png", "_mask.png"
-#                             )
-#                         )
-#                     else:
-#                         target = Image.open(
-#                             image_file.replace("/test/", "/ground_truth/"))
-#                     target = self.mask_transform(target)
-#                     label = 'defective'
-#             else:
-#                 if os.path.dirname(image_file).endswith("good"):
-#                     target = torch.zeros([1, image.shape[-2], image.shape[-1]])
-#                     label = 'good'
-#                 else :
-#                     target = torch.zeros([1, image.shape[-2], image.shape[-1]])
-#                     label = 'defective'
+    def __getitem__(self, index):
+        image_file = self.image_files[index]
+        image = Image.open(image_file)
+        image = self.image_transform(image)
+        if(image.shape[0] == 1):
+            image = image.expand(3, self.config.data.image_size, self.config.data.image_size)
+        if self.is_train:
+            label = 'good'
+            return image, label
+        else:
+            if self.config.data.mask:
+                if os.path.dirname(image_file).endswith("good"):
+                    target = torch.zeros([1, image.shape[-2], image.shape[-1]])
+                    label = 'good'
+                else :
+                    if self.config.data.name == 'MVTec':
+                        target = Image.open(
+                            image_file.replace("/test/", "/ground_truth/").replace(
+                                ".png", "_mask.png"
+                            )
+                        )
+                    else:
+                        target = Image.open(
+                            image_file.replace("/test/", "/ground_truth/"))
+                    target = self.mask_transform(target)
+                    label = 'defective'
+            else:
+                if os.path.dirname(image_file).endswith("good"):
+                    target = torch.zeros([1, image.shape[-2], image.shape[-1]])
+                    label = 'good'
+                else :
+                    target = torch.zeros([1, image.shape[-2], image.shape[-1]])
+                    label = 'defective'
                 
-#             return image, target, label
+            return image, target, label
 
-#     def __len__(self):
-#         if self.is_train:
-#             return int(len(self.image_files)*1)
-#         else:
-#             return len(self.image_files)
+    def __len__(self):
+        if self.is_train:
+            return int(len(self.image_files)*1)
+        else:
+            return len(self.image_files)
 
 
 # class BTAD(torch.utils.data.Dataset):
@@ -300,16 +300,13 @@ class SHOMRI(Dataset):
     while efficiently handling 3D file loading and patching internally.
     """
     def __init__(self, root: str, config: Any, is_train: bool = True):
-        # Define internal keys for dictionary-based transforms
         self.image_key = "image"
         self.mask_key = "mask"
         self.is_train = is_train
-        self.image_size = config.data.image_size # Expects a tuple: (D, H, W)
+        self.image_size = config.data.image_size 
 
-        # 1. Get the list of data dictionaries
         data_list = get_data_list(root, self.image_key, self.mask_key, is_train)
 
-        # 2. Define MONAI transforms
         keys_to_load = [self.image_key]
         if not is_train:
             keys_to_load.append(self.mask_key)
@@ -317,7 +314,7 @@ class SHOMRI(Dataset):
         base_transforms = [
             LoadImaged(keys=self.image_key), 
             EnsureChannelFirstd(keys=self.image_key), 
-            ResizeD(keys=self.image_key, spatial_size=(config.data.image_size,config.data.image_size,config.data.image_size)),
+            ResizeD(keys=self.image_key, spatial_size=(config.data.image_size, config.data.image_size, config.data.image_size)),
             ScaleIntensityRanged(keys=self.image_key, a_min=-1.0, a_max=1.0),
         ]
 
@@ -328,7 +325,7 @@ class SHOMRI(Dataset):
             mask_transforms = [
                 LoadImaged(keys=self.mask_key), 
                 EnsureChannelFirstd(keys=self.mask_key),
-                ResizeD(keys=self.mask_key, spatial_size=(config.data.image_size,config.data.image_size,config.data.image_size), mode="nearest")
+                ResizeD(keys=self.mask_key, spatial_size=(config.data.image_size, config.data.image_size, config.data.image_size), mode="nearest")
             ]
             self.transforms = Compose(base_transforms + mask_transforms)
             
@@ -344,18 +341,14 @@ class SHOMRI(Dataset):
         return len(self.monai_dataset)
 
     def __getitem__(self, index: int) -> Tuple:
-        # Retrieve the dictionary from the MONAI dataset
         data = self.monai_dataset[index]
+        image = data[self.image_key] 
+        label = data["label"]  
         
-        # Extract components
-        image = data[self.image_key] # (1, D, H, W)
-        label = data["label"]        # "good" or "defective"
-        
-        # Handle the mask/target:
+
         if self.is_train:
             target_mask = torch.zeros_like(image) 
             return image, target_mask, label
         else:
-            # target_mask = (data[self.mask_key] > 0).float()
             target_mask = (torch.ones_like(image))
             return image, target_mask, label

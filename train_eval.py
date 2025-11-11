@@ -109,20 +109,6 @@ def trainer(args):
     optimizer = torch.optim.Adam(
         model.parameters(), lr=config.model.learning_rate, weight_decay=config.model.weight_decay
     )
-    if config.data.name == 'MVTec':
-        train_dataset = MVTec(
-            root= config.data.data_dir,
-            category=config.data.category,
-            config = config,
-            is_train=True,
-        )
-    if config.data.name == 'BTAD':
-        train_dataset = BTAD(
-            root= config.data.data_dir,
-            category=config.data.category,
-            config = config,
-            is_train=True,
-        )
 
     if config.data.name == 'SHOMRI':
         train_dataset = SHOMRI(
@@ -179,14 +165,12 @@ def trainer(args):
             scaler.step(optimizer)
             scaler.update()
 
-            # Log training loss to TensorBoard at each step
             writer.add_scalar('Loss/train_step', loss.item(), epoch * len(trainloader) + step)
 
         epoch_time = time.time() - start_time
         writer.add_scalar('Time/epoch', epoch_time, epoch)
         print(f"Epoch {epoch} | Loss: {loss.item():.4f} | Time: {epoch_time:.2f}s")
         
-        # Log learning rate to TensorBoard
         writer.add_scalar('Learning Rate', optimizer.param_groups[0]['lr'], epoch)
         
         # Log a batch of training images to see how they look
@@ -194,18 +178,17 @@ def trainer(args):
             img_grid = vutils.make_grid(images[:8], normalize=True, scale_each=True)
             # writer.add_image('Training Images', img_grid, global_step=epoch)
 
-        # Evaluate the model every 50 epochs or on the last epoch
+
         if testloader and (epoch % 50 == 0 or epoch == config.model.epochs - 1):
             metrics = evaluator(model, testloader, config, device)
             
-            print(f"--- Evaluation at Epoch {epoch} ---")
+            print(f"Evaluation at Epoch {epoch}")
             for metric_name, value in metrics.items():
                 # Ensure the value is a scalar before logging
                 if isinstance(value, torch.Tensor):
                     value = value.item()
                 writer.add_scalar(f"Evaluation/{metric_name}", value, epoch)
                 print(f"{metric_name.replace('_', ' ').title()}: {value:.4f}")
-            print("-----------------------------------")
 
             if metrics['auroc'] > best_auroc:
                 best_auroc = metrics['auroc']
@@ -216,7 +199,7 @@ def trainer(args):
     total_training_time = time.time() - total_start_time
     writer.add_scalar('Total Training Time', total_training_time)
     
-    # Close the SummaryWriter
+
     writer.close()
     
     print(f"\nTraining finished. Total training time: {total_training_time:.2f}s")

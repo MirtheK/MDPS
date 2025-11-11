@@ -62,8 +62,9 @@ def mdps(args):
         with torch.no_grad():
             for data, targets, labels in testloader:
                 anomaly_batch = []
-                data = data.to(config.model.device)
-                test_steps = torch.Tensor([config.model.test_steps]).type(torch.int64).to(config.model.device)
+                print("shape of Data:", data.shape)
+                data = data.to(config.model.device).
+                test_steps = torch.Tensor([config.model.test_steps]).type(torch.int16).to(config.model.device)
                 at = compute_alpha( test_steps.long(),config)
                 noisy_image = at.sqrt() * data + (1- at).sqrt() * torch.randn_like(data).to('cuda')
                 seq = range(0 , config.model.test_steps, config.model.skip)
@@ -76,24 +77,18 @@ def mdps(args):
                 anomaly_batch = torch.cat(anomaly_batch, dim=0)
                 anomaly_map = torch.mean(anomaly_batch, dim=0) 
 
-                transform = transforms.Compose([
-                    transforms.CenterCrop((224)), 
-                ]) 
-                
-                if config.data.name == 'MVTec':
-                    anomaly_map = transform(anomaly_map)
-                    targets = transform(targets)
 
                 anomaly_map_list.append(anomaly_map)
                 gt_list.append(targets)
                 for pred, label in zip(anomaly_map, labels):
                     labels_list.append(0 if label == 'good' else 1)
+                    pred_flat = pred.flatten().unsqueeze(0)
+                    pred_flat = F.softmax(pred_flat, dim=1)
                     k = 500
-                    pred = pred.reshape(1,-1)
-                    pred = F.softmax(pred, dim=1)
-                    k_max, idx = pred.topk(k, largest=True)
+                    k_max, _ = pred_flat.topk(k, largest=True)
                     score = torch.sum(k_max)
                     predictions.append(score.item())
+                                    
     else:
         with torch.no_grad():
             for data, targets, labels in testloader:
@@ -114,7 +109,6 @@ def mdps(args):
                 anomaly_map_list.append(anomaly_map)
 
         anomaly_map_list = torch.cat(anomaly_map_list, dim=0)
-        print(anomaly_map_list.shape)
 
         pixel_min = torch.min(anomaly_map_list)
         pixel_max = torch.max(anomaly_map_list)
@@ -141,22 +135,15 @@ def mdps(args):
                 anomaly_batch = torch.cat(anomaly_batch, dim=0)
                 multipul_anomaly_list.append(anomaly_batch)
                 anomaly_map = torch.mean(anomaly_batch, dim=0)             
-                transform = transforms.Compose([
-                    transforms.CenterCrop((224)), 
-                ])
 
-                if config.data.name == 'MVTec':
-                    anomaly_map = transform(anomaly_map)
-                    targets = transform(targets)
-                
                 anomaly_map_list.append(anomaly_map)
                 gt_list.append(targets)
                 for pred, label in zip(anomaly_map, labels):
                     labels_list.append(0 if label == 'good' else 1)
-                    k = 500 
-                    pred = pred.reshape(1,-1)
-                    pred = F.softmax(pred, dim=1)
-                    k_max, idx = pred.topk(k, largest=True)
+                    pred_flat = pred.flatten().unsqueeze(0)
+                    pred_flat = F.softmax(pred_flat, dim=1)
+                    k = 500
+                    k_max, _ = pred_flat.topk(k, largest=True)
                     score = torch.sum(k_max)
                     predictions.append(score.item())
                     
