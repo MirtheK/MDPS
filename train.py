@@ -1,5 +1,6 @@
-
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0" 
 import argparse
 from omegaconf import OmegaConf
 import numpy as np
@@ -10,7 +11,6 @@ from src.dataset import SHOMRI
 from src.diffusion import diffusion_loss
 from src.models.unet import UNetModel
 
-os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 
 def trainer(args):
     config = OmegaConf.load(args.config)
@@ -20,22 +20,14 @@ def trainer(args):
     model = model.to(config.model.device)
     model = model.float()
     model.train()
-    model = torch.nn.parallel.DistributedDataParallel(model)
+    # model = torch.nn.DataParallel(model)
 
     optimizer = torch.optim.Adam(
         model.parameters(), lr=config.model.learning_rate, weight_decay=config.model.weight_decay
     )
     if config.data.name == 'SHOMRI':
         train_dataset = SHOMRI(
-            root= config.data.data_dir,
-            config = config,
-            is_train=True,
-        )
-
-    if config.data.name == 'BTAD':
-        train_dataset = BTAD(
-            root= config.data.data_dir,
-            config = config,
+            root_dir= config.data.data_dir,
             is_train=True,
         )
     trainloader = torch.utils.data.DataLoader(
@@ -50,14 +42,22 @@ def trainer(args):
     if not os.path.exists(config.model.checkpoint_dir):
         os.mkdir(config.model.checkpoint_dir)
 
+    scaler = torch.amp.GradScaler('cuda')
+
     for epoch in range(config.model.epochs):
         for step, batch in enumerate(trainloader):
             t = torch.randint(1, config.model.diffusion_steps, (batch[0].shape[0],), device=config.model.device).long()
             optimizer.zero_grad()
-        
-            loss = diffusion_loss(model, batch[0], t, config) 
-            loss.backward()
-            optimizer.step()
+            with torch.amp.autocast('cuda'):
+                loss = diffusion_loss(model, batch[0], t, config)
+
+            # loss = diffusion_loss(model, batch[0], t, config) 
+            # loss.backward()
+            # optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
             if epoch % 1 == 0 and step == 0:
                 print(f"Epoch {epoch} | Loss: {loss.item()}")
             if epoch % config.model.epochs_checkpoint == 0 and step ==0:
@@ -66,7 +66,9 @@ def trainer(args):
                     os.mkdir(model_save_dir)
                 print('saving model')
                 torch.save(model.state_dict(), os.path.join(model_save_dir, str(epoch)))
-                    
+                torch.cuda.empty_cache()
+            if step % 10 == 0: 
+                torch.cuda.empty_cache()
 def parse_args():
     parser = argparse.ArgumentParser('MDPS')    
     parser.add_argument('-cfg', '--config', help='config file')

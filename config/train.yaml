@@ -8,7 +8,7 @@ data :
   imput_channel : 1
 
 model:
-  checkpoint_dir: checkpoints/SHOMRI
+  checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI
   resnet: resnet50
   learning_rate: 3e-4 
   weight_decay: 0.05 

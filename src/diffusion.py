@@ -1,16 +1,38 @@
 import torch
 import numpy as np
 
+# def diffusion_loss(model, x_0, t, config):
+#     x_0 = x_0.to(config.model.device)
+#     betas = np.linspace(config.model.beta_start, config.model.beta_end, config.model.diffusion_steps, dtype=np.float16)
+#     betas_tensor = torch.tensor(betas, dtype=torch.float16, device=config.model.device)
+#     noise = torch.randn_like(x_0, device=x_0.device)
+#     alpha_t = (1 - betas_tensor).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1, 1)
+#     noisy_input = alpha_t.sqrt() * x_0 + (1 - alpha_t).sqrt() * noise
+#     model_output = model(noisy_input, t)
+#     loss = (noise - model_output).square().sum(dim=(1, 2, 3, 4)).mean(dim=0)
+#     return loss
+
 def diffusion_loss(model, x_0, t, config):
-    x_0 = x_0.to(config.model.device)
-    betas = np.linspace(config.model.beta_start, config.model.beta_end, config.model.diffusion_steps, dtype=np.float16)
-    betas_tensor = torch.tensor(betas, dtype=torch.float16, device=config.model.device)
-    noise = torch.randn_like(x_0, device=x_0.device)
-    alpha_t = (1 - betas_tensor).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1, 1)
+    device = config.model.device
+    x_0 = x_0.to(device, non_blocking=True)
+    if not hasattr(diffusion_loss, "_betas_tensor"):
+        betas = np.linspace(
+            config.model.beta_start, 
+            config.model.beta_end, 
+            config.model.diffusion_steps, 
+            dtype=np.float32 
+        )
+        diffusion_loss._betas_tensor = torch.tensor(betas, dtype=torch.float32, device=device)
+        diffusion_loss._alphas_cumprod = torch.cumprod(1.0 - diffusion_loss._betas_tensor, dim=0)  
+    betas_tensor = diffusion_loss._betas_tensor
+    alphas_cumprod = diffusion_loss._alphas_cumprod
+    noise = torch.randn_like(x_0, device=device)
+    alpha_t = alphas_cumprod.index_select(0, t).view(-1, 1, 1, 1, 1)
     noisy_input = alpha_t.sqrt() * x_0 + (1 - alpha_t).sqrt() * noise
     model_output = model(noisy_input, t)
-    loss = (noise - model_output).square().sum(dim=(1, 2, 3, 4)).mean(dim=0)
+    loss = (noise - model_output).pow(2).mean()
     return loss
+
 
 def sample(y0, x, seq, model, config, w):
     with torch.no_grad():
