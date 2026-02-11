@@ -1,32 +1,72 @@
-data :
-  name: SHOMRI 
-  data_dir: /projects/prjs1633/anomaly_detection/SHOMRI/
-  category: test
-  image_size: 128 
-  batch_size: 1
-  mask : True 
-  imput_channel : 1 
+# data :
+#   name: SHOMRI 
+#   data_dir: /projects/prjs1633/anomaly_detection/SHOMRI/
+#   category: test
+#   image_size: 128 
+#   batch_size: 1
+#   mask : True 
+#   imput_channel : 1 
 
-model:
-  checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI  
-  resnet: resnet50
-  weight_decay: 0.05 
-  ckpt : 600 
-  eta : 7
+# model:
+#   checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI  
+#   resnet: resnet50
+#   weight_decay: 0.05 
+#   ckpt : 600 
+#   eta : 7
   
-  w_mask : 0
-  w : 100
-  diffusion_steps: 1000
-  mask_steps: 200
-  test_steps: 200 
-  skip : 20   
-  skip_mask: 20
-  mask0_thresholds: 0.08
-  mask_repeat : 1
-  test_repeat : 1
+#   w_mask : 0
+#   w : 100
+#   diffusion_steps: 1000
+#   mask_steps: 200
+#   test_steps: 200 
+#   skip : 20   
+#   skip_mask: 20
+#   mask0_thresholds: 0.08
+#   mask_repeat : 1
+#   test_repeat : 1
 
+
+
+data:
+  name: 'SHOMRI'
+  data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
+  category: 'hip'
+  image_size: 32  
+  patch_size: [32, 32, 32] 
+  patches_per_volume: 4
+  imput_channel: 1
+  batch_size: 8
+  
+  inference_stride: [32, 32, 32] 
+  inference_patch_batch_size: 4
+  save_dir: "/gpfs/work2/0/prjs1633/checkpoints/SHOMRI/eval2"
+  
+model:
+  device: 'cuda'
+  resnet: resnet50
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  num_workers: 4
+  epochs: 1000
+  epochs_checkpoint: 50
+  diffusion_steps: 1000
+  checkpoint_dir:  /projects/prjs1633/checkpoints/SHOMRI  
+  ckpt: 'epoch_950.pt'  
+
+  eta : 7
   beta_start : 0.0001
   beta_end : 0.02 
-  device: 'cuda' 
   save_model: True
-  num_workers : 8
+
+  w_mask : 0
+  w : 100
+
+
+  # Inference settings
+  test_steps: 50
+  skip: 1
+  skip_mask: 1
+  mask0_thresholds: 0.08
+  mask_repeat : 1
+  test_repeat: 3
+  mask_steps: 0  # Set to > 0 if using mask-based inference

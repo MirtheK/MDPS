@@ -15,7 +15,7 @@ __all__ = ['resnet34', 'resnet50']
 
 model_urls = {
     'resnet34': '/projects/prjs1633/repositories/MDPS/src/models/resnet34.pth',
-    'resnet50': '/projects/prjs1633/repositories/MDPS/src/models/resnet_50_23dataset.pth',
+    'resnet50': '/gpfs/work2/0/prjs1633/repositories/MDPS/src/models/pretrained/resnet_50_23dataset.pth',
 }
 #     'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
 #     'resnet34': 'https://download.pytorch.org/models/resnet34-b627a593.pth',
@@ -262,6 +262,29 @@ class ResNet(nn.Module):
         return self._forward_impl(x)
 
         
+# def _resnet(
+#     arch: str,
+#     block: Type[Union[BasicBlock, Bottleneck]],
+#     layers: List[int],
+#     pretrained: bool,
+#     progress: bool,
+#     **kwargs: Any
+# ) -> ResNet:
+#     model = ResNet(block, layers, **kwargs)
+#     if pretrained:
+#         state_dict = load_state_dict_from_url(model_urls[arch],
+#                                         progress=progress)
+#         model.load_state_dict(state_dict)
+#         # checkpoint = torch.load(model_urls[arch])
+#         # # state_dict = checkpoint["state_dict"] 
+#         # new_state_dict = OrderedDict()
+#         # for k, v in checkpoint['state_dict'].items():
+#         #     new_key = k.replace('module.', '')  
+#         #     new_state_dict[new_key] = v
+#         # missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
+#         # print("Missing keys:", missing)
+#         # print("Unexpected keys:", unexpected)
+#     return model
 def _resnet(
     arch: str,
     block: Type[Union[BasicBlock, Bottleneck]],
@@ -272,18 +295,29 @@ def _resnet(
 ) -> ResNet:
     model = ResNet(block, layers, **kwargs)
     if pretrained:
-        state_dict = load_state_dict_from_url(model_urls[arch],
-                                        progress=progress)
-        model.load_state_dict(state_dict)
-        # checkpoint = torch.load(model_urls[arch])
-        # # state_dict = checkpoint["state_dict"] 
-        # new_state_dict = OrderedDict()
-        # for k, v in checkpoint['state_dict'].items():
-        #     new_key = k.replace('module.', '')  
-        #     new_state_dict[new_key] = v
-        # missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
-        # print("Missing keys:", missing)
-        # print("Unexpected keys:", unexpected)
+        # Load checkpoint from local path
+        checkpoint = torch.load(model_urls[arch], map_location='cpu')
+        
+        # Handle different checkpoint formats
+        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        else:
+            state_dict = checkpoint
+        
+        # Remove 'module.' prefix if present (from DataParallel)
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            new_key = k.replace('module.', '') if k.startswith('module.') else k
+            new_state_dict[new_key] = v
+        
+        # Load with strict=False since we're not using the fc layer
+        missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
+        
+        if missing:
+            logging.info(f"Missing keys (expected for modified architecture): {missing}")
+        if unexpected:
+            logging.warning(f"Unexpected keys in checkpoint: {unexpected}")
+    
     return model
 
 

@@ -35,15 +35,33 @@ def distance(input1, input2, resnet, config):
     device = config.model.device
     input1 = input1.to(device)
     input2 = input2.to(device)
+    
+
     i_d = MSE(input1, input2)
     f_d = LPIPS(input1, input2, resnet, config)
     f_d = torch.Tensor(f_d).to(device)
+    
+
+    if f_d.shape != i_d.shape:
+        if len(i_d.shape) == 5:
+            f_d = F.interpolate(
+                f_d, 
+                size=i_d.shape[2:],  
+                mode='trilinear', 
+                align_corners=False
+            )
+        elif len(i_d.shape) == 4:
+            f_d = F.interpolate(
+                f_d, 
+                size=i_d.shape[2:],  
+                mode='bilinear', 
+                align_corners=False
+            )
+    
     max_f_d = torch.max(f_d)
     max_i_d = torch.max(i_d)
     anomaly_map += f_d + config.model.eta * max_f_d/max_i_d * i_d
-    
-    anomaly_map = gaussian_blur(anomaly_map, sigma)  
-                                
+    anomaly_map = gaussian_blur(anomaly_map, sigma)                            
     anomaly_map = torch.sum(anomaly_map, dim=1, keepdim=True)
     return anomaly_map
 

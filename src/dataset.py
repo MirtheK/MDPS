@@ -5,200 +5,282 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import nibabel as nib
-from monai.transforms import Compose, LoadImage, EnsureChannelFirst, ToTensor
 
 from monai.transforms import (
     Compose,
+    Resized,
     LoadImaged,
     ScaleIntensityRanged,
-    RandSpatialCropSamplesd,
-    EnsureTypeD,
-    ResizeD,
+    RandSpatialCropd,
+    EnsureTyped,
     EnsureChannelFirstd,
-    RandCropByPosNegLabeld,
 )
-from monai.data import PatchDataset, CacheDataset, PersistentDataset
-from monai.utils import first
-
-def get_train_patch_sampler(image_key, patch_size, num_samples):
-    """
-    Returns a callable (RandSpatialCropSamplesd) that takes a dictionary 
-    (the full volume) and returns a list of dictionaries (the patches).
-    """
-    sampler = RandSpatialCropSamplesd(
-        keys=[image_key],
-        roi_size=patch_size, 
-        num_samples=num_samples,
-        random_center=True,
-        random_size=False,
-    )
-    return sampler
+from monai.data import CacheDataset
 
 
-def get_data_list(root_dir: str, image_key: str, mask_key: str, is_train: bool) -> List[dict]:
+def get_data_list(root_dir: str, image_key: str = "image", is_train: bool = True) -> List[dict]:
     """
-    Generates a list of dictionaries containing file paths for images and metadata.
-    This structure is required for MONAI's dictionary-based transforms.
+    Generates a list of dictionaries containing file paths for images.
     """
     data_list = []
     
     if is_train:
-        image_files = glob.glob(os.path.join(root_dir, "train", "NORMAL", "*.nii.gz"))
+        normal_dir = os.path.join(root_dir, "train", "NORMAL")
+        image_files = glob.glob(os.path.join(normal_dir, "*.nii.gz"))
         for img_path in image_files:
             data_list.append({image_key: img_path, "label": "good"})
-            
     else:
-        normal_images = glob.glob(os.path.join(root_dir, "test", "NORMAL", "*.nii.gz"))
+        # Test set (not used during training but kept for completeness)
+        normal_dir = os.path.join(root_dir, "test", "NORMAL")
+        abnormal_dir = os.path.join(root_dir, "test", "ABNORMAL")
+        
+        normal_images = glob.glob(os.path.join(normal_dir, "*.nii.gz"))
         for img_path in normal_images:
-
-            data_list.append({image_key: img_path, mask_key: "/projects/prjs1633/anomaly_detection/SHOMRI/zero_mask.nii.gz", "label": "good"})
-
-        defective_images = glob.glob(os.path.join(root_dir, "test", "ABNORMAL", "*.nii.gz"))
-        for img_path in defective_images:
-
-            mask_path = img_path.replace("/test/", "/ground_truth/").replace(".nii.gz", "_mask.nii.gz")
-            if not os.path.exists(mask_path):
-                mask_path = "/projects/prjs1633/anomaly_detection/SHOMRI/one_mask.nii.gz"
-                
-            data_list.append({image_key: img_path, mask_key: mask_path, "label": "defective"})
+            data_list.append({image_key: img_path, "label": "good"})
+            
+        abnormal_images = glob.glob(os.path.join(abnormal_dir, "*.nii.gz"))
+        for img_path in abnormal_images:
+            data_list.append({image_key: img_path, "label": "defective"})
+    
     return data_list
 
 
-
-
-# class SHOMRI(Dataset):
-#     """
-#     Implements a PatchDataset for training to sample random patches from NIfTI volumes,
-#     following a similar mechanism to nnUNet for efficiency.
-#     """
-#     def __init__(self, root: str, config: Any, is_train: bool = True):
-#         self.image_key = "image"
-#         self.mask_key = "mask"
-#         self.is_train = is_train
-
-#         self.patch_size = tuple(config.data.get("patch_size", (32, 32, 32))) 
-#         self.samples_per_image = config.data.get("num_samples_per_image", 4)
-        
-#         data_list = get_data_list(root, self.image_key, self.mask_key, is_train)
-
-#         base_transforms = [
-#             LoadImaged(keys=self.image_key), 
-#             EnsureChannelFirstd(keys=self.image_key),
-#             ScaleIntensityRanged(keys=self.image_key, a_min=-1.0, a_max=1.0, b_min=0.0, b_max=1.0, clip=True), 
-#         ]
-        
-#         if is_train:
-#             train_cache_transforms = Compose(base_transforms + [
-#                 EnsureTypeD(keys=[self.image_key], data_type="tensor")
-#             ])
-
-#             inner_dataset = CacheDataset(
-#                 data=data_list,
-#                 transform=train_cache_transforms, 
-#                 cache_rate=1.0, 
-#                 num_workers=0 
-#             )
-            
-#             patch_sampler = get_train_patch_sampler(
-#                 image_key=self.image_key, 
-#                 patch_size=self.patch_size, 
-#                 num_samples=self.samples_per_image
-#             )
-
-#             self.monai_dataset = PatchDataset(
-#                 data=inner_dataset,
-#                 patch_func=lambda x: patch_sampler(x),
-#                 samples_per_image=self.samples_per_image,
-
-#             )
-
-#         else:
-#             mask_transforms = [
-#                 LoadImaged(keys=self.mask_key), 
-#                 EnsureChannelFirstd(keys=self.mask_key),
-#             ]
-
-#             self.transforms = Compose(base_transforms + mask_transforms + [
-#                 EnsureTypeD(keys=[self.image_key, self.mask_key], data_type="tensor")
-#             ])
-            
-#             self.monai_dataset = CacheDataset(
-#                 data=data_list,
-#                 transform=self.transforms, 
-#                 cache_rate=1.0, 
-#                 num_workers=0
-#             )
-            
-#     def __len__(self) -> int:
-#         return len(self.monai_dataset)
-
-#     def __getitem__(self, index):
-#         data_dict = self.monai_dataset[index]
-
-#         if isinstance(data_dict_or_list, list):
-#             return tuple(d[self.image_key] for d in data_dict_or_list)
-
-#         # normal cache dataset case
-#         if self.is_train:
-#             return (data_dict_or_list[self.image_key],)
-#         else:
-#             return data_dict_or_list
-#         # if self.is_train:
-#         #     return (data_dict[self.image_key],)
-#         # else:
-#         #     return data_dict
-
-
-
-class SHOMRI(torch.utils.data.Dataset):
-    def __init__(self, root_dir, is_train=True, transform=None):
+class SHOMRI(Dataset):
+    """
+    nnUNet-style patch sampling dataset for 3D medical images.
+    Samples multiple random patches per volume per epoch.
+    """
+    def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64), 
+                 patches_per_volume: int = 4, is_train: bool = True, 
+                 cache_rate: float = 1.0):
         """
         Args:
-            root_dir (str): Root directory containing train/test folders.
-            is_train (bool): Whether to use the training set (default is True).
-            transform (callable, optional): Optional transform to be applied on a sample.
+            root_dir: Root directory containing train/test folders
+            patch_size: Size of patches to extract (D, H, W)
+            patches_per_volume: Number of random patches per volume per epoch
+            is_train: Whether to use training set
+            cache_rate: Fraction of dataset to cache in memory (1.0 = cache all)
         """
-        self.root_dir = root_dir
+        self.image_key = "image"
         self.is_train = is_train
-        self.transform = transform
-        self.image_files = []
+        self.patch_size = tuple(patch_size)
+        self.patches_per_volume = patches_per_volume
         
-        if self.is_train:
-            normal_dir = os.path.join(root_dir, 'train', 'NORMAL')
-            self.image_files = [os.path.join(normal_dir, f) for f in os.listdir(normal_dir) if f.endswith('.nii.gz')]
+        # Get list of data files
+        data_list = get_data_list(root_dir, self.image_key, is_train)
+        
+        if len(data_list) == 0:
+            raise ValueError(f"No images found in {root_dir}")
+        
+        num_volumes = len(data_list)
+        num_patches = num_volumes * patches_per_volume if is_train else num_volumes
+        print(f"Found {num_volumes} volumes for {'training' if is_train else 'testing'}")
+        print(f"Total patches per epoch: {num_patches}")
+        
+        # Define transforms
+        if is_train:
+            # Training: Load full volumes, cache them, then crop on-the-fly
+            self.base_transforms = Compose([
+                LoadImaged(keys=[self.image_key]),
+                EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
+                Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
+                ScaleIntensityRanged(
+                    keys=[self.image_key], 
+                    a_min=-1.0, 
+                    a_max=1.0, 
+                    b_min=0.0, 
+                    b_max=1.0, 
+                    clip=True
+                ),
+                EnsureTyped(keys=[self.image_key], dtype=torch.float32),
+            ])
+            
+            # Cache full volumes
+            self.cached_volumes = CacheDataset(
+                data=data_list,
+                transform=self.base_transforms,
+                cache_rate=cache_rate,
+                num_workers=4,
+            )
+            
+            # Random crop transform (applied on-the-fly, NOT cached)
+            self.crop_transform = RandSpatialCropd(
+                keys=[self.image_key],
+                roi_size=self.patch_size,
+                random_center=True,
+                random_size=False,
+            )
+            
         else:
-
-            normal_dir = os.path.join(root_dir, 'test', 'NORMAL')
-            abnormal_dir = os.path.join(root_dir, 'test', 'ABNORMAL')
-            self.image_files = [os.path.join(normal_dir, f) for f in os.listdir(normal_dir) if f.endswith('.nii.gz')]
-            self.image_files += [os.path.join(abnormal_dir, f) for f in os.listdir(abnormal_dir) if f.endswith('.nii.gz')]
-
+            # Test: Load full volumes without cropping
+            self.transforms = Compose([
+                LoadImaged(keys=[self.image_key]),
+                EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
+                Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
+                ScaleIntensityRanged(
+                    keys=[self.image_key],
+                    a_min=-1.0,
+                    a_max=1.0,
+                    b_min=0.0,
+                    b_max=1.0,
+                    clip=True
+                ),
+                EnsureTyped(keys=[self.image_key], dtype=torch.float32),
+            ])
+            
+            self.cached_volumes = CacheDataset(
+                data=data_list,
+                transform=self.transforms,
+                cache_rate=cache_rate,
+                num_workers=4,
+            )
+    
+    def __len__(self) -> int:
+        if self.is_train:
+            return len(self.cached_volumes) * self.patches_per_volume
+        return len(self.cached_volumes)
+    
     def __getitem__(self, index):
-        image_file = self.image_files[index]
+        """
+        Returns a random patch from a volume.
         
-        img = nib.load(image_file)
-        image = img.get_fdata() 
-
-        if image.ndim == 3:
-            image = np.expand_dims(image, axis=0) 
-        
-        image = torch.tensor(image, dtype=torch.float32)
-
-        if self.transform:
-            image = self.transform(image)
-
+        For training: Maps index to volume, then samples random patch
+        For testing: Returns full volume
+        """
         if self.is_train:
-            label = 'good'
-            return image, label
+            # Map linear index to volume index
+            volume_idx = index % len(self.cached_volumes)
+            
+            # Get cached full volume
+            volume_dict = self.cached_volumes[volume_idx]
+            
+            # Apply random crop (this happens on-the-fly, so different each time)
+            patch_dict = self.crop_transform(volume_dict)
+            
+            # Return just the image patch as a tuple for compatibility
+            return (patch_dict[self.image_key],)
         else:
-            if os.path.dirname(image_file).endswith("NORMAL"):
-                label = 'good'
-                target = torch.zeros_like(image)
-            else:
-                label = 'defective'
-                target = torch.ones_like(image) 
+            # Return full volume for testing
+            data_dict = self.cached_volumes[index]
+            return data_dict
 
-            return image, target, label
 
-    def __len__(self):
-        return len(self.image_files)
+class SHOMRIGridPatches(Dataset):
+    """
+    Alternative: Extract all non-overlapping patches from each volume.
+    More systematic, ensures full coverage of each volume.
+    """
+    def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64),
+                 is_train: bool = True, cache_rate: float = 1.0):
+        """
+        Args:
+            root_dir: Root directory
+            patch_size: Size of patches (D, H, W)
+            is_train: Whether to use training set
+            cache_rate: Fraction to cache
+        """
+        self.image_key = "image"
+        self.is_train = is_train
+        self.patch_size = tuple(patch_size)
+        
+        data_list = get_data_list(root_dir, self.image_key, is_train)
+        
+        if len(data_list) == 0:
+            raise ValueError(f"No images found in {root_dir}")
+        
+        if is_train:
+            # Load and cache full volumes
+            self.base_transforms = Compose([
+                LoadImaged(keys=[self.image_key]),
+                EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
+                Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
+                ScaleIntensityRanged(
+                    keys=[self.image_key],
+                    a_min=-1.0,
+                    a_max=1.0,
+                    b_min=0.0,
+                    b_max=1.0,
+                    clip=True
+                ),
+                EnsureTyped(keys=[self.image_key], dtype=torch.float32),
+            ])
+            
+            self.cached_volumes = CacheDataset(
+                data=data_list,
+                transform=self.base_transforms,
+                cache_rate=cache_rate,
+                num_workers=4,
+            )
+            
+            # Pre-compute patch locations for 128x128x128 volumes
+            # Assumes all volumes are same size
+            volume_size = (128, 128, 128)
+            self.patch_locations = []
+            
+            # Calculate non-overlapping grid
+            for d in range(0, volume_size[0], patch_size[0]):
+                for h in range(0, volume_size[1], patch_size[1]):
+                    for w in range(0, volume_size[2], patch_size[2]):
+                        if (d + patch_size[0] <= volume_size[0] and 
+                            h + patch_size[1] <= volume_size[1] and 
+                            w + patch_size[2] <= volume_size[2]):
+                            self.patch_locations.append((d, h, w))
+            
+            self.patches_per_volume = len(self.patch_locations)
+            total_patches = len(self.cached_volumes) * self.patches_per_volume
+            
+            print(f"Found {len(self.cached_volumes)} volumes")
+            print(f"Patches per volume: {self.patches_per_volume}")
+            print(f"Total patches: {total_patches}")
+            
+        else:
+            self.transforms = Compose([
+                LoadImaged(keys=[self.image_key]),
+                EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
+                Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
+                ScaleIntensityRanged(
+                    keys=[self.image_key],
+                    a_min=-1.0,
+                    a_max=1.0,
+                    b_min=0.0,
+                    b_max=1.0,
+                    clip=True
+                ),
+                EnsureTyped(keys=[self.image_key], dtype=torch.float32),
+            ])
+            
+            self.cached_volumes = CacheDataset(
+                data=data_list,
+                transform=self.transforms,
+                cache_rate=cache_rate,
+                num_workers=4,
+            )
+    
+    def __len__(self) -> int:
+        if self.is_train:
+            return len(self.cached_volumes) * self.patches_per_volume
+        return len(self.cached_volumes)
+    
+    def __getitem__(self, index):
+        if self.is_train:
+            # Map index to volume and patch location
+            volume_idx = index // self.patches_per_volume
+            patch_idx = index % self.patches_per_volume
+            
+            # Get cached volume
+            volume_dict = self.cached_volumes[volume_idx]
+            volume = volume_dict[self.image_key]
+            
+            # Extract specific patch
+            d, h, w = self.patch_locations[patch_idx]
+            patch = volume[
+                :,
+                d:d+self.patch_size[0],
+                h:h+self.patch_size[1],
+                w:w+self.patch_size[2]
+            ]
+            
+            return (patch,)
+        else:
+            data_dict = self.cached_volumes[index]
+            return data_dict

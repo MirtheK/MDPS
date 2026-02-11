@@ -239,7 +239,7 @@ class UNetModel(nn.Module):
             channel_mults="",
             num_res_blocks=2,
             dropout=0,
-            attention_resolutions="32,16,8",
+            attention_resolutions="16,8",
             biggan_updown=True,
             in_channels=1
             ):
