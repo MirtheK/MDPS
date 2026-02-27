@@ -1,16 +1,6 @@
 import torch
 import numpy as np
 
-# def diffusion_loss(model, x_0, t, config):
-#     x_0 = x_0.to(config.model.device)
-#     betas = np.linspace(config.model.beta_start, config.model.beta_end, config.model.diffusion_steps, dtype=np.float16)
-#     betas_tensor = torch.tensor(betas, dtype=torch.float16, device=config.model.device)
-#     noise = torch.randn_like(x_0, device=x_0.device)
-#     alpha_t = (1 - betas_tensor).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1, 1)
-#     noisy_input = alpha_t.sqrt() * x_0 + (1 - alpha_t).sqrt() * noise
-#     model_output = model(noisy_input, t)
-#     loss = (noise - model_output).square().sum(dim=(1, 2, 3, 4)).mean(dim=0)
-#     return loss
 
 def diffusion_loss(model, x_0, t, config):
     device = config.model.device
