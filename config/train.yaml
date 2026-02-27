@@ -1,44 +1,42 @@
-# data :
-#   name: SHOMRI 
-#   data_dir: /projects/prjs1633/anomaly_detection/SHOMRI/
-#   category: test
-#   image_size: 128 
-#   batch_size: 1
-#   mask : False 
-#   imput_channel : 1
-
-# model:
-#   checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI
-#   resnet: resnet50
-#   learning_rate: 3e-4 
-#   weight_decay: 0.05 
-#   epochs: 2000 
-#   epochs_checkpoint: 100
-#   diffusion_steps: 1000
-#   beta_start : 0.0001
-#   beta_end : 0.02 
-#   device: 'cuda'
-#   num_workers : 8
-
-
 data:
   name: 'SHOMRI'
   data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
-  category: 'hip' 
-  image_size: 128 
-  patch_size: [32, 32, 32]  #
+  category: 'testStep300'
+  
+  # Training patches
+  image_size: 128
+  patch_size: [64, 64, 64]
   patches_per_volume: 4
+  batch_size: 4
   imput_channel: 1
-  batch_size: 1  
+  
+  # Inference settings
+  inference_stride: [32, 32, 32]  # 50% overlap for better reconstruction
+  inference_patch_batch_size: 2
   
 model:
   device: 'cuda'
+  epochs: 300
+  epochs_checkpoint: 20
+  eval_frequency: 10  # Evaluate more frequently in early training
+  resnet: resnet50
+  
   learning_rate: 0.0001
-  weight_decay: 0.0
+  weight_decay: 0.0001
   num_workers: 4
-  epochs: 1000
-  epochs_checkpoint: 50
+  
+  # Diffusion parameters
   diffusion_steps: 1000
-  beta_start : 0.0001
-  beta_end : 0.02 
+  beta_start: 0.0001
+  beta_end: 0.008
+  eta : 1
+  
+  # Inference parameters
+  test_steps: 300
+  skip: 5
+  test_repeat: 10  
+  w: 0  # Guidance weight (0 = no guidance)
+  mask_steps: 0
+  
   checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI
+  ckpt: 100
