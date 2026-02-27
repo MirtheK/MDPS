@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import nibabel as nib
+from copy import deepcopy
 
 from monai.transforms import (
     Compose,
@@ -26,29 +27,36 @@ def get_data_list(root_dir: str, image_key: str = "image", is_train: bool = True
     
     if is_train:
         normal_dir = os.path.join(root_dir, "train", "NORMAL")
-        image_files = glob.glob(os.path.join(normal_dir, "*.nii.gz"))
+        image_files = sorted(glob.glob(os.path.join(normal_dir, "*.nii.gz")))
         for img_path in image_files:
-            data_list.append({image_key: img_path, "label": "good"})
+            # filename = os.path.basename(img_path)
+            data_list.append({image_key: img_path, "label": "good", "filename": os.path.basename(img_path)})
     else:
-        # Test set (not used during training but kept for completeness)
+        # Test set
         normal_dir = os.path.join(root_dir, "test", "NORMAL")
-        abnormal_dir = os.path.join(root_dir, "test", "ABNORMAL")
+        abnormal_dir = os.path.join(root_dir, "test", "ABNORMAL/img")
         
-        normal_images = glob.glob(os.path.join(normal_dir, "*.nii.gz"))
+        normal_images = sorted(glob.glob(os.path.join(normal_dir, "*.nii.gz")))
         for img_path in normal_images:
-            data_list.append({image_key: img_path, "label": "good"})
+            # filename = os.path.basename(img_path)
+            data_list.append({image_key: img_path, "label": "good", "filename": os.path.basename(img_path)})
             
-        abnormal_images = glob.glob(os.path.join(abnormal_dir, "*.nii.gz"))
+        abnormal_images = sorted(glob.glob(os.path.join(abnormal_dir, "*.nii.gz")))
         for img_path in abnormal_images:
-            data_list.append({image_key: img_path, "label": "defective"})
+            # filename = os.path.basename(img_path)
+            data_list.append({image_key: img_path, "label": "defective", "filename": os.path.basename(img_path)})
     
     return data_list
 
 
 class SHOMRI(Dataset):
     """
-    nnUNet-style patch sampling dataset for 3D medical images.
-    Samples multiple random patches per volume per epoch.
+    FIXED: Non-blocking patch sampling dataset for 3D medical images.
+    
+    KEY FIXES:
+    1. Deep copy volumes before cropping to avoid blocking
+    2. Persistent workers compatible
+    3. Thread-safe transforms
     """
     def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64), 
                  patches_per_volume: int = 4, is_train: bool = True, 
@@ -86,8 +94,8 @@ class SHOMRI(Dataset):
                 Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
                 ScaleIntensityRanged(
                     keys=[self.image_key], 
-                    a_min=-1.0, 
-                    a_max=1.0, 
+                    a_min= 0, 
+                    a_max= 600, 
                     b_min=0.0, 
                     b_max=1.0, 
                     clip=True
@@ -96,14 +104,17 @@ class SHOMRI(Dataset):
             ])
             
             # Cache full volumes
+            # IMPORTANT: Use copy_cache=True to avoid blocking issues
             self.cached_volumes = CacheDataset(
                 data=data_list,
                 transform=self.base_transforms,
                 cache_rate=cache_rate,
                 num_workers=4,
+                copy_cache=True,  # CRITICAL: Makes a copy when retrieving cached items
             )
             
             # Random crop transform (applied on-the-fly, NOT cached)
+            # Each worker needs its own random state - handled by PyTorch
             self.crop_transform = RandSpatialCropd(
                 keys=[self.image_key],
                 roi_size=self.patch_size,
@@ -119,8 +130,8 @@ class SHOMRI(Dataset):
                 Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
                 ScaleIntensityRanged(
                     keys=[self.image_key],
-                    a_min=-1.0,
-                    a_max=1.0,
+                    a_min= 0,
+                    a_max= 600,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
@@ -133,6 +144,7 @@ class SHOMRI(Dataset):
                 transform=self.transforms,
                 cache_rate=cache_rate,
                 num_workers=4,
+                copy_cache=True,  # CRITICAL: For thread safety
             )
     
     def __len__(self) -> int:
@@ -144,8 +156,7 @@ class SHOMRI(Dataset):
         """
         Returns a random patch from a volume.
         
-        For training: Maps index to volume, then samples random patch
-        For testing: Returns full volume
+        FIXED: Deep copies volume before cropping to avoid blocking issues
         """
         if self.is_train:
             # Map linear index to volume index
@@ -154,8 +165,14 @@ class SHOMRI(Dataset):
             # Get cached full volume
             volume_dict = self.cached_volumes[volume_idx]
             
-            # Apply random crop (this happens on-the-fly, so different each time)
-            patch_dict = self.crop_transform(volume_dict)
+            # CRITICAL FIX: Deep copy to avoid in-place modification blocking
+            # Without this, multiple workers accessing same cached volume causes blocking
+            volume_dict_copy = {
+                self.image_key: volume_dict[self.image_key].clone(),  # Clone the tensor
+            }
+            
+            # Apply random crop (different each time due to copy)
+            patch_dict = self.crop_transform(volume_dict_copy)
             
             # Return just the image patch as a tuple for compatibility
             return (patch_dict[self.image_key],)
@@ -167,7 +184,8 @@ class SHOMRI(Dataset):
 
 class SHOMRIGridPatches(Dataset):
     """
-    Alternative: Extract all non-overlapping patches from each volume.
+    FIXED: Non-blocking grid patch extraction.
+    Extract all non-overlapping patches from each volume.
     More systematic, ensures full coverage of each volume.
     """
     def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64),
@@ -196,8 +214,8 @@ class SHOMRIGridPatches(Dataset):
                 Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
                 ScaleIntensityRanged(
                     keys=[self.image_key],
-                    a_min=-1.0,
-                    a_max=1.0,
+                    a_min= 0,
+                    a_max= 600,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
@@ -210,10 +228,10 @@ class SHOMRIGridPatches(Dataset):
                 transform=self.base_transforms,
                 cache_rate=cache_rate,
                 num_workers=4,
+                copy_cache=True,  # CRITICAL: Avoid blocking
             )
             
             # Pre-compute patch locations for 128x128x128 volumes
-            # Assumes all volumes are same size
             volume_size = (128, 128, 128)
             self.patch_locations = []
             
@@ -240,8 +258,8 @@ class SHOMRIGridPatches(Dataset):
                 Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
                 ScaleIntensityRanged(
                     keys=[self.image_key],
-                    a_min=-1.0,
-                    a_max=1.0,
+                    a_min= 0,
+                    a_max= 600,
                     b_min=0.0,
                     b_max=1.0,
                     clip=True
@@ -254,6 +272,7 @@ class SHOMRIGridPatches(Dataset):
                 transform=self.transforms,
                 cache_rate=cache_rate,
                 num_workers=4,
+                copy_cache=True,  # CRITICAL: Avoid blocking
             )
     
     def __len__(self) -> int:
@@ -262,6 +281,9 @@ class SHOMRIGridPatches(Dataset):
         return len(self.cached_volumes)
     
     def __getitem__(self, index):
+        """
+        FIXED: Uses slicing (creates a view) which is thread-safe
+        """
         if self.is_train:
             # Map index to volume and patch location
             volume_idx = index // self.patches_per_volume
@@ -271,16 +293,109 @@ class SHOMRIGridPatches(Dataset):
             volume_dict = self.cached_volumes[volume_idx]
             volume = volume_dict[self.image_key]
             
-            # Extract specific patch
+            # Extract specific patch (slicing creates a new view, thread-safe)
             d, h, w = self.patch_locations[patch_idx]
             patch = volume[
                 :,
                 d:d+self.patch_size[0],
                 h:h+self.patch_size[1],
                 w:w+self.patch_size[2]
-            ]
+            ].clone()  # CRITICAL: Clone to avoid blocking
             
             return (patch,)
         else:
             data_dict = self.cached_volumes[index]
             return data_dict
+
+
+
+class SHOMRIPreExtracted(Dataset):
+    """
+    BEST OPTION FOR AVOIDING BLOCKING: Pre-extract all patches during initialization.
+    
+    Pros:
+    - Zero blocking issues
+    - Fastest training (no on-the-fly operations)
+    - Works with persistent_workers=True
+    
+    Cons:
+    - Uses more memory (stores all patches)
+    - Longer initialization time
+    - Less data augmentation (patches are fixed)
+    """
+    def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64), 
+                 patches_per_volume: int = 4, is_train: bool = True):
+        """
+        Args:
+            root_dir: Root directory
+            patch_size: Size of patches to extract
+            patches_per_volume: Number of random patches per volume
+            is_train: Whether to use training set
+        """
+        self.image_key = "image"
+        self.is_train = is_train
+        self.patch_size = tuple(patch_size)
+        
+        print(f"Pre-extracting patches (this may take a few minutes)...")
+        
+        # Get data list
+        data_list = get_data_list(root_dir, self.image_key, is_train)
+        
+        if len(data_list) == 0:
+            raise ValueError(f"No images found in {root_dir}")
+        
+        # Load and transform volumes
+        transforms = Compose([
+            LoadImaged(keys=[self.image_key]),
+            EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
+            Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
+            ScaleIntensityRanged(
+                keys=[self.image_key],
+                a_min= 0,
+                a_max= 600,
+                b_min=0.0,
+                b_max=1.0,
+                clip=True
+            ),
+            EnsureTyped(keys=[self.image_key], dtype=torch.float32),
+        ])
+        
+        # Pre-extract all patches
+        self.patches = []
+        
+        for vol_data in data_list:
+            volume_dict = transforms(vol_data)
+            volume = volume_dict[self.image_key]
+            
+            if is_train:
+                # Extract random patches
+                C, D, H, W = volume.shape
+                for _ in range(patches_per_volume):
+                    # Random crop coordinates
+                    d_start = np.random.randint(0, D - patch_size[0] + 1)
+                    h_start = np.random.randint(0, H - patch_size[1] + 1)
+                    w_start = np.random.randint(0, W - patch_size[2] + 1)
+                    
+                    patch = volume[
+                        :,
+                        d_start:d_start+patch_size[0],
+                        h_start:h_start+patch_size[1],
+                        w_start:w_start+patch_size[2]
+                    ].clone()
+                    
+                    self.patches.append(patch)
+            else:
+                # Store full volume
+                self.patches.append(volume)
+        
+        print(f"Pre-extracted {len(self.patches)} patches")
+    
+    def __len__(self) -> int:
+        return len(self.patches)
+    
+    def __getitem__(self, index):
+        if self.is_train:
+            return (self.patches[index],)
+        else:
+            # For testing, return as dict
+            return {self.image_key: self.patches[index]}
