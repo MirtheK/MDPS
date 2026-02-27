@@ -446,6 +446,7 @@ def save_nifti(anomaly_map, reconstructed_volume, original_filename, save_dir, a
     # Remove channel dimension if present
     if anomaly_map.dim() == 4:
         anomaly_map = anomaly_map.squeeze(0)
+        reconstructed_volume = reconstructed_volume.squeeze(0)
     
     # Convert to numpy and ensure correct shape (D, H, W)
     anomaly_np = anomaly_map.cpu().numpy()
@@ -647,12 +648,11 @@ def mdps(args):
                     )
                     
                     reconstructed_volume = reconstructed_volume[:, :, :data.shape[2], :data.shape[3], :data.shape[4]]
-                    
+                    reconstructions_list.append(reconstructed_volume)
                     # Compute anomaly map
                     anomaly_map = distance(reconstructed_volume, data, resnet, config) / 2
                     
                     # Store results
-                    reconstructions_list.append(reconstructed_volume)
                     anomaly_map_list.append(anomaly_map)
                     gt_list.append(targets)
                     
