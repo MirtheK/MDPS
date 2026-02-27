@@ -410,8 +410,8 @@ def Resnet(config):
     elif config.model.resnet == 'resnet50': 
         resnet = resnet50(pretrained=True)
     else:
-        logging.warning("Feature extractor is not correctly selected, Default: wide_resnet101_2")
-        resnet = wide_resnet101_2(pretrained=True)
+        logging.warning("Feature extractor is not correctly selected, Default: resnet50")
+        resnet = resnet50(pretrained=True)
 
     resnet.to(config.model.device)  
     return resnet
