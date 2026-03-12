@@ -33,8 +33,8 @@ def get_data_list(root_dir: str, image_key: str = "image", is_train: bool = True
             data_list.append({image_key: img_path, "label": "good", "filename": os.path.basename(img_path)})
     else:
         # Test set
-        normal_dir = os.path.join(root_dir, "test", "NORMAL")
-        abnormal_dir = os.path.join(root_dir, "test", "ABNORMAL/img")
+        normal_dir = os.path.join(root_dir, "test1", "NORMAL")
+        abnormal_dir = os.path.join(root_dir, "test1", "ABNORMAL")
         
         normal_images = sorted(glob.glob(os.path.join(normal_dir, "*.nii.gz")))
         for img_path in normal_images:
@@ -165,8 +165,6 @@ class SHOMRI(Dataset):
             # Get cached full volume
             volume_dict = self.cached_volumes[volume_idx]
             
-            # CRITICAL FIX: Deep copy to avoid in-place modification blocking
-            # Without this, multiple workers accessing same cached volume causes blocking
             volume_dict_copy = {
                 self.image_key: volume_dict[self.image_key].clone(),  # Clone the tensor
             }
@@ -228,10 +226,10 @@ class SHOMRIGridPatches(Dataset):
                 transform=self.base_transforms,
                 cache_rate=cache_rate,
                 num_workers=4,
-                copy_cache=True,  # CRITICAL: Avoid blocking
+                copy_cache=True,  
             )
             
-            # Pre-compute patch locations for 128x128x128 volumes
+
             volume_size = (128, 128, 128)
             self.patch_locations = []
             
@@ -272,7 +270,7 @@ class SHOMRIGridPatches(Dataset):
                 transform=self.transforms,
                 cache_rate=cache_rate,
                 num_workers=4,
-                copy_cache=True,  # CRITICAL: Avoid blocking
+                copy_cache=True,  
             )
     
     def __len__(self) -> int:
