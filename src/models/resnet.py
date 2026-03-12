@@ -235,56 +235,25 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def _forward_impl(self, x: Tensor) -> Tensor:
- # Expected input shape: (batch_size, channels, depth, height, width)
-        # e.g., (4, 3, 32, 64, 64) for a batch of 4 videos
         x = self.conv1(x)  # e.g., -> (4, 64, 16, 32, 32)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)  # e.g., -> (4, 64, 8, 16, 16)
 
-        # The following comments reflect the 5D tensor shapes
+
         feature_a = self.layer1(x)  # e.g., -> (4, 256, 8, 16, 16)
         feature_b = self.layer2(feature_a)  # e.g., -> (4, 512, 4, 8, 8)
         feature_c = self.layer3(feature_b)  # e.g., -> (4, 1024, 2, 4, 4)
         feature_d = self.layer4(feature_c)  # e.g., -> (4, 2048, 1, 2, 2)
 
-        # # Final classification path
-        # x = self.avgpool(feature_d)
-        # x = torch.flatten(x, 1)
-        # x = self.fc(x)
-
-        # return x
-
-        # The network can return intermediate features for other tasks
         return [feature_a, feature_b, feature_c]
+        # return [feature_b, feature_c, feature_d]
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
 
-        
-# def _resnet(
-#     arch: str,
-#     block: Type[Union[BasicBlock, Bottleneck]],
-#     layers: List[int],
-#     pretrained: bool,
-#     progress: bool,
-#     **kwargs: Any
-# ) -> ResNet:
-#     model = ResNet(block, layers, **kwargs)
-#     if pretrained:
-#         state_dict = load_state_dict_from_url(model_urls[arch],
-#                                         progress=progress)
-#         model.load_state_dict(state_dict)
-#         # checkpoint = torch.load(model_urls[arch])
-#         # # state_dict = checkpoint["state_dict"] 
-#         # new_state_dict = OrderedDict()
-#         # for k, v in checkpoint['state_dict'].items():
-#         #     new_key = k.replace('module.', '')  
-#         #     new_state_dict[new_key] = v
-#         # missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
-#         # print("Missing keys:", missing)
-#         # print("Unexpected keys:", unexpected)
-#     return model
+
+
 def _resnet(
     arch: str,
     block: Type[Union[BasicBlock, Bottleneck]],
