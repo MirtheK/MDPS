@@ -30,16 +30,16 @@
 data:
   name: 'SHOMRI'
   data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
-  category: 'hip'
+  category: 'testStep200_w100'
   image_size: 32  
   patch_size: [32, 32, 32] 
   patches_per_volume: 4
   imput_channel: 1
-  batch_size: 8
+  batch_size: 1
   
   inference_stride: [32, 32, 32] 
   inference_patch_batch_size: 4
-  save_dir: "/gpfs/work2/0/prjs1633/checkpoints/SHOMRI/eval3"
+  save_dir: "/projects/prjs1633/evaluation_results/testStep200_w100"
   
 model:
   device: 'cuda'
@@ -51,7 +51,7 @@ model:
   epochs_checkpoint: 50
   diffusion_steps: 1000
   checkpoint_dir:  /projects/prjs1633/checkpoints/SHOMRI  
-  ckpt: 'epoch_950.pt'  
+  ckpt: '280'  
 
   eta : 7
   beta_start : 0.0001
