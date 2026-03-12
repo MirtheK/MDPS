@@ -80,7 +80,9 @@ def MSE(output, target):
 def LPIPS(output, target, resnet, config):
     resnet.eval()
     def normalize(tensor):
-        return transforms.Normalize([0.5], [0.5])((tensor + 1) / 2)
+        tensor = (tensor + 1) / 2
+        tensor = (tensor - 0.5) / 0.5
+        return tensor
     
     target_normalized = normalize(target)
     output_normalized = normalize(output)
@@ -99,7 +101,12 @@ def LPIPS(output, target, resnet, config):
         a_map = torch.mean(a_map, dim=0, keepdim=True) 
         a_map = a_map.unsqueeze(dim=1) 
 
-        interpolated_a_map = F.interpolate(a_map, size=out_size, mode='trilinear', align_corners=True)
+        interpolated_a_map = F.interpolate(
+                a_map, 
+                size=(out_size, out_size, out_size),  # explicit 3D target
+                mode='trilinear', 
+                align_corners=True
+            )
         anomaly_map += interpolated_a_map
 
     return anomaly_map
