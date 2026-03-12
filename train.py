@@ -1,6 +1,5 @@
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0" 
 import argparse
 from omegaconf import OmegaConf
 import numpy as np
@@ -15,13 +14,12 @@ from src.models.unet import UNetModel
 def trainer(args):
     config = OmegaConf.load(args.config)
     
-    # Get patch size from config (add this to your config file)
-    patch_size = config.data.get('patch_size', (64, 64, 64))
+    patch_size = config.data.get('patch_size')
     print(f"Training with patch size: {patch_size}")
 
     model = UNetModel(
-        patch_size[0],  # Use patch size instead of full image size
-        32, 
+        patch_size[0], 
+        64, 
         dropout=0.0, 
         n_heads=4,
         in_channels=config.data.imput_channel
@@ -37,24 +35,16 @@ def trainer(args):
         weight_decay=config.model.weight_decay
     )
     
-    if config.data.name == 'SHOMRI':
-        patches_per_volume = config.data.get('patches_per_volume', 4)
+    patches_per_volume = config.data.get('patches_per_volume')
+    
+    train_dataset = SHOMRI(
+        root_dir=config.data.data_dir,
+        patch_size=patch_size,
+        patches_per_volume=patches_per_volume,
+        is_train=True,
+        cache_rate=1.0, 
+    )
         
-        # Random patches (recommended - more variation)
-        train_dataset = SHOMRI(
-            root_dir=config.data.data_dir,
-            patch_size=patch_size,
-            patches_per_volume=patches_per_volume,
-            is_train=True,
-            cache_rate=1.0,  # Cache all volumes in memory
-        )
-        
-        # train_dataset = SHOMRIGridPatches(
-        #     root_dir=config.data.data_dir,
-        #     patch_size=patch_size,
-        #     is_train=True,
-        #     cache_rate=1.0,
-        # )
     
     trainloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -62,7 +52,7 @@ def trainer(args):
         shuffle=True,
         num_workers=config.model.num_workers,
         drop_last=True,
-        pin_memory=True,  # Added for faster GPU transfer
+        pin_memory=True, 
     )
     
     print(f"Dataset size: {len(train_dataset)} patches")
@@ -73,7 +63,7 @@ def trainer(args):
     if not os.path.exists(config.model.checkpoint_dir):
         os.mkdir(config.model.checkpoint_dir)
 
-    scaler = torch.amp.GradScaler('cuda')
+    # scaler = torch.amp.GradScaler('cuda')
 
     for epoch in range(config.model.epochs):
         epoch_loss = 0.0
@@ -89,32 +79,42 @@ def trainer(args):
             
             optimizer.zero_grad()
             
-            with torch.amp.autocast('cuda'):
-                loss = diffusion_loss(model, batch[0], t, config)
-            
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            
-            epoch_loss += loss.item()
-            num_batches += 1
-            
-            # Print progress every 10 steps
-            if epoch % 1 == 0 and step == 0:
-                print(f"Epoch {epoch} | Loss: {loss.item():.4f}")
-        
-        # Print epoch summary
-        avg_loss = epoch_loss / num_batches
-        print(f"Epoch {epoch} completed | Average Loss: {avg_loss:.4f}")
 
-        # Save checkpoint - CORRECT INDENTATION (inside epoch loop, outside step loop)
-        if epoch % config.model.epochs_checkpoint == 0:
-            model_save_dir = os.path.join(os.getcwd(), config.model.checkpoint_dir, config.data.category)
-            if not os.path.exists(model_save_dir):
-                os.mkdir(model_save_dir)
-            print('saving model')
-            torch.save(model.state_dict(), os.path.join(model_save_dir, str(epoch)))
-            torch.cuda.empty_cache()
+            loss = diffusion_loss(model, batch[0], t, config)
+            
+            loss.backward()
+            optimizer.step()
+            if epoch % 1 == 0 and step == 0:
+                print(f"Epoch {epoch} | Loss: {loss.item()}")
+            if epoch % config.model.epochs_checkpoint == 0 and step ==0:
+                model_save_dir = os.path.join(os.getcwd(), config.model.checkpoint_dir, config.data.category)
+                if not os.path.exists(model_save_dir):
+                    os.mkdir(model_save_dir)
+                print('saving model')
+                torch.save(model.state_dict(), os.path.join(model_save_dir, str(epoch)))
+            
+            # scaler.scale(loss).backward()
+            # scaler.step(optimizer)
+            # scaler.update()
+            
+        #     epoch_loss += loss.item()
+        #     num_batches += 1
+            
+        #     if epoch % 1 == 0 and step == 0:
+        #         print(f"Epoch {epoch} | Loss: {loss.item():.4f}")
+        
+        # # Print epoch summary
+        # avg_loss = epoch_loss / num_batches
+        # print(f"Epoch {epoch} completed | Average Loss: {avg_loss:.4f}")
+
+        # # Save checkpoint - CORRECT INDENTATION (inside epoch loop, outside step loop)
+        # if epoch % config.model.epochs_checkpoint == 0:
+        #     model_save_dir = os.path.join(os.getcwd(), config.model.checkpoint_dir, config.data.category)
+        #     if not os.path.exists(model_save_dir):
+        #         os.mkdir(model_save_dir)
+        #     print('saving model')
+        #     torch.save(model.state_dict(), os.path.join(model_save_dir, str(epoch)))
+        #     torch.cuda.empty_cache()
 
 
         # # Save checkpoint
