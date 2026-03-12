@@ -1,7 +1,7 @@
 data:
   name: 'SHOMRI'
   data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
-  category: 'testStep300'
+  category: 'testStep200_w100' #"run_check" #
   
   # Training patches
   image_size: 128
@@ -12,7 +12,7 @@ data:
   
   # Inference settings
   inference_stride: [32, 32, 32]  # 50% overlap for better reconstruction
-  inference_patch_batch_size: 2
+  inference_patch_batch_size: 16
   
 model:
   device: 'cuda'
@@ -32,11 +32,15 @@ model:
   eta : 1
   
   # Inference parameters
-  test_steps: 300
-  skip: 5
-  test_repeat: 10  
-  w: 0  # Guidance weight (0 = no guidance)
-  mask_steps: 0
-  
+  test_steps: 200
+  skip: 20
+  test_repeat: 5  
+  mask_steps: 50        # smaller than test_steps; 0 = disable masking
+  skip_mask: 10
+  w_mask: 10              # guidance scale for stage 1
+  w: 100
+  mask_repeat: 1
+  mask0_thresholds: 0.15  # lambda in Eq. 20; tune between 0.3-0.7
+
   checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI
   ckpt: 100
