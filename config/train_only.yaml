@@ -1,0 +1,29 @@
+data:
+  name: 'SHOMRI'
+  data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
+  category: 'default_only_train' #"run_check" #
+  
+  # Training patches
+  image_size: 128
+  patch_size: [64, 64, 64]
+  patches_per_volume: 4
+  batch_size: 4
+  imput_channel: 1
+  
+  # Inference settings
+  inference_stride: [32, 32, 32]  # 50% overlap for better reconstruction
+  inference_patch_batch_size: 16
+  
+
+model:
+  checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI
+  resnet: resnet50
+  learning_rate: 3e-4 
+  weight_decay: 0.05 
+  epochs: 2000 
+  epochs_checkpoint: 100
+  diffusion_steps: 1000
+  beta_start : 0.0001
+  beta_end : 0.02 
+  device: 'cuda'
+  num_workers : 8
