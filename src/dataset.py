@@ -51,12 +51,6 @@ def get_data_list(root_dir: str, image_key: str = "image", is_train: bool = True
 
 class SHOMRI(Dataset):
     """
-    FIXED: Non-blocking patch sampling dataset for 3D medical images.
-    
-    KEY FIXES:
-    1. Deep copy volumes before cropping to avoid blocking
-    2. Persistent workers compatible
-    3. Thread-safe transforms
     """
     def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64), 
                  patches_per_volume: int = 4, is_train: bool = True, 
@@ -104,17 +98,15 @@ class SHOMRI(Dataset):
             ])
             
             # Cache full volumes
-            # IMPORTANT: Use copy_cache=True to avoid blocking issues
             self.cached_volumes = CacheDataset(
                 data=data_list,
                 transform=self.base_transforms,
                 cache_rate=cache_rate,
                 num_workers=4,
-                copy_cache=True,  # CRITICAL: Makes a copy when retrieving cached items
+                copy_cache=True,  
             )
             
             # Random crop transform (applied on-the-fly, NOT cached)
-            # Each worker needs its own random state - handled by PyTorch
             self.crop_transform = RandSpatialCropd(
                 keys=[self.image_key],
                 roi_size=self.patch_size,
@@ -144,7 +136,7 @@ class SHOMRI(Dataset):
                 transform=self.transforms,
                 cache_rate=cache_rate,
                 num_workers=4,
-                copy_cache=True,  # CRITICAL: For thread safety
+                copy_cache=True, 
             )
     
     def __len__(self) -> int:
@@ -175,135 +167,117 @@ class SHOMRI(Dataset):
             # Return just the image patch as a tuple for compatibility
             return (patch_dict[self.image_key],)
         else:
-            # Return full volume for testing
+
+            # # Return full volume for testing
             data_dict = self.cached_volumes[index]
             return data_dict
-
+            
+VOLUME_SIZE = (128, 128, 128)
 
 class SHOMRIGridPatches(Dataset):
-    """
-    FIXED: Non-blocking grid patch extraction.
-    Extract all non-overlapping patches from each volume.
-    More systematic, ensures full coverage of each volume.
-    """
     def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64),
-                 is_train: bool = True, cache_rate: float = 1.0):
+                 patches_per_volume: int = 4, is_train: bool = True,
+                 cache_rate: float = 1.0):
         """
         Args:
-            root_dir: Root directory
-            patch_size: Size of patches (D, H, W)
-            is_train: Whether to use training set
-            cache_rate: Fraction to cache
+            root_dir:            Root directory containing train/test folders
+            patch_size:          Size of patches to extract (D, H, W)
+            patches_per_volume:  Number of random patches per volume (train only)
+            is_train:            Whether to use training set
+            cache_rate:          Fraction of dataset to cache in memory
         """
         self.image_key = "image"
         self.is_train = is_train
         self.patch_size = tuple(patch_size)
-        
+
         data_list = get_data_list(root_dir, self.image_key, is_train)
-        
+
         if len(data_list) == 0:
             raise ValueError(f"No images found in {root_dir}")
-        
-        if is_train:
-            # Load and cache full volumes
-            self.base_transforms = Compose([
-                LoadImaged(keys=[self.image_key]),
-                EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
-                Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
-                ScaleIntensityRanged(
-                    keys=[self.image_key],
-                    a_min= 0,
-                    a_max= 600,
-                    b_min=0.0,
-                    b_max=1.0,
-                    clip=True
-                ),
-                EnsureTyped(keys=[self.image_key], dtype=torch.float32),
-            ])
-            
-            self.cached_volumes = CacheDataset(
-                data=data_list,
-                transform=self.base_transforms,
-                cache_rate=cache_rate,
-                num_workers=4,
-                copy_cache=True,  
-            )
-            
 
-            volume_size = (128, 128, 128)
-            self.patch_locations = []
-            
-            # Calculate non-overlapping grid
-            for d in range(0, volume_size[0], patch_size[0]):
-                for h in range(0, volume_size[1], patch_size[1]):
-                    for w in range(0, volume_size[2], patch_size[2]):
-                        if (d + patch_size[0] <= volume_size[0] and 
-                            h + patch_size[1] <= volume_size[1] and 
-                            w + patch_size[2] <= volume_size[2]):
-                            self.patch_locations.append((d, h, w))
-            
-            self.patches_per_volume = len(self.patch_locations)
-            total_patches = len(self.cached_volumes) * self.patches_per_volume
-            
-            print(f"Found {len(self.cached_volumes)} volumes")
-            print(f"Patches per volume: {self.patches_per_volume}")
-            print(f"Total patches: {total_patches}")
-            
-        else:
-            self.transforms = Compose([
-                LoadImaged(keys=[self.image_key]),
-                EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
-                Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
-                ScaleIntensityRanged(
-                    keys=[self.image_key],
-                    a_min= 0,
-                    a_max= 600,
-                    b_min=0.0,
-                    b_max=1.0,
-                    clip=True
-                ),
-                EnsureTyped(keys=[self.image_key], dtype=torch.float32),
-            ])
-            
-            self.cached_volumes = CacheDataset(
-                data=data_list,
-                transform=self.transforms,
-                cache_rate=cache_rate,
-                num_workers=4,
-                copy_cache=True,  
+        # Shared transforms (identical for train and test)
+        base_transforms = Compose([
+            LoadImaged(keys=[self.image_key]),
+            EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
+            Resized(keys=[self.image_key], spatial_size=list(VOLUME_SIZE), mode="trilinear"),
+            ScaleIntensityRanged(
+                keys=[self.image_key],
+                a_min=0,
+                a_max=600,
+                b_min=0.0,
+                b_max=1.0,
+                clip=True,
+            ),
+            EnsureTyped(keys=[self.image_key], dtype=torch.float32),
+        ])
+
+        self.cached_volumes = CacheDataset(
+            data=data_list,
+            transform=base_transforms,
+            cache_rate=cache_rate,
+            num_workers=4,
+            copy_cache=True,
+        )
+
+        # Precompute deterministic non-overlapping patch grid (used by both splits)
+        self.patch_locations = [
+            (d, h, w)
+            for d in range(0, VOLUME_SIZE[0], patch_size[0])
+            for h in range(0, VOLUME_SIZE[1], patch_size[1])
+            for w in range(0, VOLUME_SIZE[2], patch_size[2])
+            if (d + patch_size[0] <= VOLUME_SIZE[0] and
+                h + patch_size[1] <= VOLUME_SIZE[1] and
+                w + patch_size[2] <= VOLUME_SIZE[2])
+        ]
+        self.patches_per_volume_grid = len(self.patch_locations)
+
+        # Train uses random patches; test uses the full deterministic grid
+        self._patches_per_volume = patches_per_volume if is_train else self.patches_per_volume_grid
+
+        num_volumes = len(self.cached_volumes)
+        print(f"Found {num_volumes} volumes for {'training' if is_train else 'testing'}")
+        print(f"Patches per volume: {self._patches_per_volume}")
+        print(f"Total patches: {num_volumes * self._patches_per_volume}")
+
+        # Random crop transform for training only
+        if is_train:
+            from monai.transforms import RandSpatialCropd
+            self.rand_crop = RandSpatialCropd(
+                keys=[self.image_key],
+                roi_size=self.patch_size,
+                random_center=True,
+                random_size=False,
             )
-    
+
     def __len__(self) -> int:
+        return len(self.cached_volumes) * self._patches_per_volume
+
+    def __getitem__(self, index: int):
+        volume_idx = index // self._patches_per_volume
+        patch_idx  = index  % self._patches_per_volume
+
+        volume_dict = self.cached_volumes[volume_idx]
+        volume = volume_dict[self.image_key]
+
         if self.is_train:
-            return len(self.cached_volumes) * self.patches_per_volume
-        return len(self.cached_volumes)
-    
-    def __getitem__(self, index):
-        """
-        FIXED: Uses slicing (creates a view) which is thread-safe
-        """
-        if self.is_train:
-            # Map index to volume and patch location
-            volume_idx = index // self.patches_per_volume
-            patch_idx = index % self.patches_per_volume
-            
-            # Get cached volume
-            volume_dict = self.cached_volumes[volume_idx]
-            volume = volume_dict[self.image_key]
-            
-            # Extract specific patch (slicing creates a new view, thread-safe)
+            # Random crop — different each call
+            volume_copy = {self.image_key: volume.clone()}
+            patch = self.rand_crop(volume_copy)[self.image_key]
+            return (patch,)
+        else:
+            # Deterministic grid crop — same patch for same index every run
             d, h, w = self.patch_locations[patch_idx]
             patch = volume[
                 :,
-                d:d+self.patch_size[0],
-                h:h+self.patch_size[1],
-                w:w+self.patch_size[2]
-            ].clone()  # CRITICAL: Clone to avoid blocking
-            
-            return (patch,)
-        else:
-            data_dict = self.cached_volumes[index]
-            return data_dict
+                d : d + self.patch_size[0],
+                h : h + self.patch_size[1],
+                w : w + self.patch_size[2],
+            ].clone()
+            return {
+                "image":    patch,
+                "label":    volume_dict["label"],
+                "filename": volume_dict["filename"],
+            }
 
 
 
