@@ -10,11 +10,11 @@ def metric(labels_list, predictions, anomaly_map_list, gt_list):
     youden_j = tpr - fpr
     optimal_threshold_index = np.argmax(youden_j)
     optimal_threshold = thresholds[optimal_threshold_index]
-    pixel_auroc = compute_pixel_auroc(anomaly_map_list, gt_list)
-    print('AUROC: ({:.1f}, {:.1f})'.format(image_auroc*100 ,pixel_auroc*100))
+    # pixel_auroc = compute_pixel_auroc(anomaly_map_list, gt_list)
+    print('AUROC: ({:.1f})'.format(image_auroc*100)) # ,pixel_auroc*100))
     print(optimal_threshold)
         
-    return optimal_threshold, image_auroc, pixel_auroc
+    return optimal_threshold, image_auroc #, pixel_auroc
 
 def compute_pixel_auroc(anomaly_map_list, gt_list):
 
