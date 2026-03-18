@@ -1,7 +1,7 @@
 data:
   name: 'SHOMRI'
   data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
-  category: 'testStep200_w100' #"run_check" #
+  category: 'long_train' #"run_check" #
   
   # Training patches
   image_size: 128
@@ -16,7 +16,7 @@ data:
   
 model:
   device: 'cuda'
-  epochs: 300
+  epochs: 3000
   epochs_checkpoint: 20
   eval_frequency: 10  # Evaluate more frequently in early training
   resnet: resnet50
