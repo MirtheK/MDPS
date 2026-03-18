@@ -30,43 +30,37 @@
 data:
   name: 'SHOMRI'
   data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
-  category: 'testStep200_w100'
-  image_size: 32  
-  patch_size: [32, 32, 32] 
+  category: 'default_only_train'
+  patch_size: [64, 64, 64] 
   patches_per_volume: 4
+  image_size: 64 
   imput_channel: 1
-  batch_size: 1
+  batch_size: 8
   
-  inference_stride: [32, 32, 32] 
-  inference_patch_batch_size: 4
-  save_dir: "/projects/prjs1633/evaluation_results/testStep200_w100"
+  inference_stride: [64, 64, 64] 
+  inference_patch_batch_size: 8
+
+  save_dir: /projects/prjs1633/evaluation_results
   
 model:
   device: 'cuda'
+  checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI  
   resnet: resnet50
-  learning_rate: 0.0001
-  weight_decay: 0.0
-  num_workers: 4
-  epochs: 1000
-  epochs_checkpoint: 50
-  diffusion_steps: 1000
-  checkpoint_dir:  /projects/prjs1633/checkpoints/SHOMRI  
-  ckpt: '280'  
-
+  weight_decay: 0.05 
+  ckpt : 400 
   eta : 7
-  beta_start : 0.0001
-  beta_end : 0.02 
-  save_model: True
+  num_workers: 4
 
+  beta_start: 0.0001
+  beta_end: 0.008
+  
   w_mask : 0
   w : 100
-
-
-  # Inference settings
-  test_steps: 50
-  skip: 1
-  skip_mask: 1
+  diffusion_steps: 1000
+  mask_steps: 200
+  test_steps: 200 
+  skip : 20   
+  skip_mask: 20
   mask0_thresholds: 0.08
   mask_repeat : 1
-  test_repeat: 3
-  mask_steps: 0  # Set to > 0 if using mask-based inference
+  test_repeat : 1
