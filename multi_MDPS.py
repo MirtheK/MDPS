@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 from src.models.unet import UNetModel
 from src.models.resnet import Resnet
-from src.dataset import SHOMRI
+from src.dataset import SHOMRIGridPatches
 from src.metrics import metric
 from src.compare import distance
 from src.diffusion import sample, sample_mask, compute_alpha
@@ -30,10 +30,11 @@ def mdps(args):
     unet.to(config.model.device)
     unet.eval()
 
-    test_dataset = SHOMRI(
+    # Use GRIDPatchs, because it's deterministic
+    test_dataset = SHOMRIGridPatches(
             root_dir=config.data.data_dir,
             patch_size=config.data.get('patch_size'),
-            patches_per_volume=1,
+            patches_per_volume=4,
             is_train=False,
             cache_rate=0.5,
         )
@@ -101,7 +102,7 @@ def mdps(args):
             for batch in testloader:
                 data = batch["image"].to(config.model.device)
                 labels = batch["label"]
-                filenames = batch["filename"]
+                filenames = batch["filename"]                
 
                 anomaly_batch = []
                 data = data.to(config.model.device)
@@ -112,7 +113,7 @@ def mdps(args):
                 for i in range(0,config.model.mask_repeat):
                     noisy_image = at.sqrt() * data + (1- at).sqrt() * torch.randn_like(data).to('cuda')
                     reconstructed = sample(data, noisy_image, seq, unet, config, w=config.model.w_mask)
-                    data_reconstructed = reconstructed[-1]
+                    data_reconstructed = reconstructed#[-1]
                     anomaly_map = distance(data_reconstructed, data, resnet, config)/2
                     anomaly_batch.append(anomaly_map.unsqueeze(0))
                 anomaly_batch = torch.cat(anomaly_batch, dim=0)
@@ -120,7 +121,6 @@ def mdps(args):
                 anomaly_map_list.append(anomaly_map)
 
         anomaly_map_list = torch.cat(anomaly_map_list, dim=0)
-        print(anomaly_map_list.shape)
 
         pixel_min = torch.min(anomaly_map_list)
         pixel_max = torch.max(anomaly_map_list)
@@ -145,7 +145,7 @@ def mdps(args):
                 seq = range(0 , config.model.test_steps, config.model.skip)
                 for i in range(0,config.model.mask_repeat):
                     reconstructed = sample_mask(data, mask, seq, unet, config, w=config.model.w)
-                    data_reconstructed = reconstructed[-1]
+                    data_reconstructed = reconstructed
                     anomaly_map = distance(data_reconstructed, data, resnet, config)/2
                     anomaly_batch.append(anomaly_map.unsqueeze(0))
                 anomaly_batch = torch.cat(anomaly_batch, dim=0)
@@ -160,7 +160,10 @@ def mdps(args):
                 #     targets = transform(targets)
                 
                 anomaly_map_list.append(anomaly_map)
-                gt_list.append(labels)
+                binary_labels = torch.tensor(
+                    [0 if l == 'good' else 1 for l in labels], dtype=torch.float32
+                )
+                gt_list.append(binary_labels)
                 for pred, label in zip(anomaly_map, labels):
                     labels_list.append(0 if label == 'good' else 1)
                     k = 500 
@@ -170,7 +173,7 @@ def mdps(args):
                     score = torch.sum(k_max)
                     predictions.append(score.item())
                     
-    threshold,_,_ = metric(labels_list, predictions, anomaly_map_list, gt_list)
+    threshold,_, = metric(labels_list, predictions, anomaly_map_list, gt_list)
 
     
 def parse_args():
