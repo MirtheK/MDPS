@@ -15,8 +15,21 @@ from monai.transforms import (
     RandSpatialCropd,
     EnsureTyped,
     EnsureChannelFirstd,
+    RandFlipd,
+    RandRotate90d,
+    RandAffined
 )
-from monai.data import CacheDataset
+from monai.transforms import (
+    Compose,
+    LoadImaged,
+    EnsureChannelFirstd,
+    ScaleIntensityRangePercentilesd,
+    ScaleIntensityd,
+    RandFlipd,
+    RandRotate90d,
+    EnsureTyped,
+)
+from monai.data import CacheDataset, DataLoader, Dataset, pad_list_data_collate
 
 
 def get_data_list(root_dir: str, image_key: str = "image", is_train: bool = True) -> List[dict]:
@@ -33,8 +46,8 @@ def get_data_list(root_dir: str, image_key: str = "image", is_train: bool = True
             data_list.append({image_key: img_path, "label": "good", "filename": os.path.basename(img_path)})
     else:
         # Test set
-        normal_dir = os.path.join(root_dir, "test1", "NORMAL")
-        abnormal_dir = os.path.join(root_dir, "test1", "ABNORMAL")
+        normal_dir = os.path.join(root_dir, "test2", "NORMAL")
+        abnormal_dir = os.path.join(root_dir, "test2", "ABNORMAL")
         
         normal_images = sorted(glob.glob(os.path.join(normal_dir, "*.nii.gz")))
         for img_path in normal_images:
@@ -49,325 +62,219 @@ def get_data_list(root_dir: str, image_key: str = "image", is_train: bool = True
     return data_list
 
 
-class SHOMRI(Dataset):
+
+def get_transforms(is_train: bool = True, image_key: str = "image"):
     """
+    Returns MONAI transforms pipeline.
+    Intensity is normalized to [-1, 1] as required by the diffusion model.
     """
-    def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64), 
-                 patches_per_volume: int = 4, is_train: bool = True, 
-                 cache_rate: float = 1.0):
-        """
-        Args:
-            root_dir: Root directory containing train/test folders
-            patch_size: Size of patches to extract (D, H, W)
-            patches_per_volume: Number of random patches per volume per epoch
-            is_train: Whether to use training set
-            cache_rate: Fraction of dataset to cache in memory (1.0 = cache all)
-        """
-        self.image_key = "image"
-        self.is_train = is_train
-        self.patch_size = tuple(patch_size)
-        self.patches_per_volume = patches_per_volume
-        
-        # Get list of data files
-        data_list = get_data_list(root_dir, self.image_key, is_train)
-        
-        if len(data_list) == 0:
-            raise ValueError(f"No images found in {root_dir}")
-        
-        num_volumes = len(data_list)
-        num_patches = num_volumes * patches_per_volume if is_train else num_volumes
-        print(f"Found {num_volumes} volumes for {'training' if is_train else 'testing'}")
-        print(f"Total patches per epoch: {num_patches}")
-        
-        # Define transforms
-        if is_train:
-            # Training: Load full volumes, cache them, then crop on-the-fly
-            self.base_transforms = Compose([
-                LoadImaged(keys=[self.image_key]),
-                EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
-                Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
-                ScaleIntensityRanged(
-                    keys=[self.image_key], 
-                    a_min= 0, 
-                    a_max= 600, 
-                    b_min=0.0, 
-                    b_max=1.0, 
-                    clip=True
-                ),
-                EnsureTyped(keys=[self.image_key], dtype=torch.float32),
-            ])
-            
-            # Cache full volumes
-            self.cached_volumes = CacheDataset(
-                data=data_list,
-                transform=self.base_transforms,
-                cache_rate=cache_rate,
-                num_workers=4,
-                copy_cache=True,  
-            )
-            
-            # Random crop transform (applied on-the-fly, NOT cached)
-            self.crop_transform = RandSpatialCropd(
-                keys=[self.image_key],
-                roi_size=self.patch_size,
-                random_center=True,
-                random_size=False,
-            )
-            
-        else:
-            # Test: Load full volumes without cropping
-            self.transforms = Compose([
-                LoadImaged(keys=[self.image_key]),
-                EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
-                Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
-                ScaleIntensityRanged(
-                    keys=[self.image_key],
-                    a_min= 0,
-                    a_max= 600,
-                    b_min=0.0,
-                    b_max=1.0,
-                    clip=True
-                ),
-                EnsureTyped(keys=[self.image_key], dtype=torch.float32),
-            ])
-            
-            self.cached_volumes = CacheDataset(
-                data=data_list,
-                transform=self.transforms,
-                cache_rate=cache_rate,
-                num_workers=4,
-                copy_cache=True, 
-            )
-    
-    def __len__(self) -> int:
-        if self.is_train:
-            return len(self.cached_volumes) * self.patches_per_volume
-        return len(self.cached_volumes)
-    
-    def __getitem__(self, index):
-        """
-        Returns a random patch from a volume.
-        
-        FIXED: Deep copies volume before cropping to avoid blocking issues
-        """
-        if self.is_train:
-            # Map linear index to volume index
-            volume_idx = index % len(self.cached_volumes)
-            
-            # Get cached full volume
-            volume_dict = self.cached_volumes[volume_idx]
-            
-            volume_dict_copy = {
-                self.image_key: volume_dict[self.image_key].clone(),  # Clone the tensor
-            }
-            
-            # Apply random crop (different each time due to copy)
-            patch_dict = self.crop_transform(volume_dict_copy)
-            
-            # Return just the image patch as a tuple for compatibility
-            return (patch_dict[self.image_key],)
-        else:
+    base_transforms = [
+        LoadImaged(keys=[image_key]),
+        EnsureChannelFirstd(keys=[image_key]),
+        Resized(keys=[image_key], spatial_size=[128, 128, 128], mode="trilinear"),
+        # First clip extreme outliers using percentiles, then scale to [-1, 1]
+        ScaleIntensityRangePercentilesd(
+            keys=[image_key],
+            lower=0.5,
+            upper=99.5,
+            b_min=-1.0,
+            b_max=1.0,
+            clip=True,
+        ),
+        EnsureTyped(keys=[image_key], dtype=torch.float32),
+    ]
 
-            # # Return full volume for testing
-            data_dict = self.cached_volumes[index]
-            return data_dict
-            
-VOLUME_SIZE = (128, 128, 128)
-
-class SHOMRIGridPatches(Dataset):
-    def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64),
-                 patches_per_volume: int = 4, is_train: bool = True,
-                 cache_rate: float = 1.0):
-        """
-        Args:
-            root_dir:            Root directory containing train/test folders
-            patch_size:          Size of patches to extract (D, H, W)
-            patches_per_volume:  Number of random patches per volume (train only)
-            is_train:            Whether to use training set
-            cache_rate:          Fraction of dataset to cache in memory
-        """
-        self.image_key = "image"
-        self.is_train = is_train
-        self.patch_size = tuple(patch_size)
-
-        data_list = get_data_list(root_dir, self.image_key, is_train)
-
-        if len(data_list) == 0:
-            raise ValueError(f"No images found in {root_dir}")
-
-        # Shared transforms (identical for train and test)
-        base_transforms = Compose([
-            LoadImaged(keys=[self.image_key]),
-            EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
-            Resized(keys=[self.image_key], spatial_size=list(VOLUME_SIZE), mode="trilinear"),
-            ScaleIntensityRanged(
-                keys=[self.image_key],
-                a_min=0,
-                a_max=600,
-                b_min=0.0,
-                b_max=1.0,
-                clip=True,
-            ),
-            EnsureTyped(keys=[self.image_key], dtype=torch.float32),
-        ])
-
-        self.cached_volumes = CacheDataset(
-            data=data_list,
-            transform=base_transforms,
-            cache_rate=cache_rate,
-            num_workers=4,
-            copy_cache=True,
-        )
-
-        # Precompute deterministic non-overlapping patch grid (used by both splits)
-        self.patch_locations = [
-            (d, h, w)
-            for d in range(0, VOLUME_SIZE[0], patch_size[0])
-            for h in range(0, VOLUME_SIZE[1], patch_size[1])
-            for w in range(0, VOLUME_SIZE[2], patch_size[2])
-            if (d + patch_size[0] <= VOLUME_SIZE[0] and
-                h + patch_size[1] <= VOLUME_SIZE[1] and
-                w + patch_size[2] <= VOLUME_SIZE[2])
+    if is_train:
+        augmentation_transforms = [
+            RandFlipd(keys=[image_key], prob=0.5, spatial_axis=0),
+            RandFlipd(keys=[image_key], prob=0.5, spatial_axis=1),
+            RandFlipd(keys=[image_key], prob=0.5, spatial_axis=2),
+            RandRotate90d(keys=[image_key], prob=0.5, spatial_axes=(0, 1)),
         ]
-        self.patches_per_volume_grid = len(self.patch_locations)
+        return Compose(base_transforms + augmentation_transforms)
 
-        # Train uses random patches; test uses the full deterministic grid
-        self._patches_per_volume = patches_per_volume if is_train else self.patches_per_volume_grid
-
-        num_volumes = len(self.cached_volumes)
-        print(f"Found {num_volumes} volumes for {'training' if is_train else 'testing'}")
-        print(f"Patches per volume: {self._patches_per_volume}")
-        print(f"Total patches: {num_volumes * self._patches_per_volume}")
-
-        # Random crop transform for training only
-        if is_train:
-            from monai.transforms import RandSpatialCropd
-            self.rand_crop = RandSpatialCropd(
-                keys=[self.image_key],
-                roi_size=self.patch_size,
-                random_center=True,
-                random_size=False,
-            )
-
-    def __len__(self) -> int:
-        return len(self.cached_volumes) * self._patches_per_volume
-
-    def __getitem__(self, index: int):
-        volume_idx = index // self._patches_per_volume
-        patch_idx  = index  % self._patches_per_volume
-
-        volume_dict = self.cached_volumes[volume_idx]
-        volume = volume_dict[self.image_key]
-
-        if self.is_train:
-            # Random crop — different each call
-            volume_copy = {self.image_key: volume.clone()}
-            patch = self.rand_crop(volume_copy)[self.image_key]
-            return (patch,)
-        else:
-            # Deterministic grid crop — same patch for same index every run
-            d, h, w = self.patch_locations[patch_idx]
-            patch = volume[
-                :,
-                d : d + self.patch_size[0],
-                h : h + self.patch_size[1],
-                w : w + self.patch_size[2],
-            ].clone()
-            return {
-                "image":    patch,
-                "label":    volume_dict["label"],
-                "filename": volume_dict["filename"],
-            }
+    return Compose(base_transforms)
 
 
-
-class SHOMRIPreExtracted(Dataset):
+def SHOMRI(
+    root_dir: str,
+    batch_size: int,
+    image_key: str = "image",
+    is_train: bool = True,
+    num_workers: int = 4,
+    cache_rate: float = 1.0,
+):
+    def custom_collate(batch):
+        return {
+            "image":    pad_list_data_collate([b["image"] for b in batch]),
+            "label":    [b["label"]    for b in batch],
+            "filename": [b["filename"] for b in batch],
+        }
     """
-    BEST OPTION FOR AVOIDING BLOCKING: Pre-extract all patches during initialization.
-    
-    Pros:
-    - Zero blocking issues
-    - Fastest training (no on-the-fly operations)
-    - Works with persistent_workers=True
-    
-    Cons:
-    - Uses more memory (stores all patches)
-    - Longer initialization time
-    - Less data augmentation (patches are fixed)
+    Builds a MONAI CacheDataset and DataLoader.
+
+    Args:
+        root_dir:    Root directory of the dataset.
+        batch_size:  Batch size for the DataLoader.
+        image_key:   Key used for images in the data dicts.
+        is_train:    Whether to build the training set (with augmentation) or test set.
+        num_workers: Number of DataLoader worker processes.
+        cache_rate:  Fraction of data to cache in RAM (1.0 = full cache).
     """
-    def __init__(self, root_dir: str, patch_size: tuple = (64, 64, 64), 
-                 patches_per_volume: int = 4, is_train: bool = True):
-        """
-        Args:
-            root_dir: Root directory
-            patch_size: Size of patches to extract
-            patches_per_volume: Number of random patches per volume
-            is_train: Whether to use training set
-        """
-        self.image_key = "image"
-        self.is_train = is_train
-        self.patch_size = tuple(patch_size)
-        
-        print(f"Pre-extracting patches (this may take a few minutes)...")
-        
-        # Get data list
-        data_list = get_data_list(root_dir, self.image_key, is_train)
-        
-        if len(data_list) == 0:
-            raise ValueError(f"No images found in {root_dir}")
-        
-        # Load and transform volumes
-        transforms = Compose([
-            LoadImaged(keys=[self.image_key]),
-            EnsureChannelFirstd(keys=[self.image_key], channel_dim="no_channel"),
-            Resized(keys=[self.image_key], spatial_size=[128, 128, 128], mode="trilinear"),
-            ScaleIntensityRanged(
-                keys=[self.image_key],
-                a_min= 0,
-                a_max= 600,
-                b_min=0.0,
-                b_max=1.0,
-                clip=True
-            ),
-            EnsureTyped(keys=[self.image_key], dtype=torch.float32),
-        ])
-        
-        # Pre-extract all patches
-        self.patches = []
-        
-        for vol_data in data_list:
-            volume_dict = transforms(vol_data)
-            volume = volume_dict[self.image_key]
-            
-            if is_train:
-                # Extract random patches
-                C, D, H, W = volume.shape
-                for _ in range(patches_per_volume):
-                    # Random crop coordinates
-                    d_start = np.random.randint(0, D - patch_size[0] + 1)
-                    h_start = np.random.randint(0, H - patch_size[1] + 1)
-                    w_start = np.random.randint(0, W - patch_size[2] + 1)
-                    
-                    patch = volume[
-                        :,
-                        d_start:d_start+patch_size[0],
-                        h_start:h_start+patch_size[1],
-                        w_start:w_start+patch_size[2]
-                    ].clone()
-                    
-                    self.patches.append(patch)
-            else:
-                # Store full volume
-                self.patches.append(volume)
-        
-        print(f"Pre-extracted {len(self.patches)} patches")
-    
-    def __len__(self) -> int:
-        return len(self.patches)
-    
-    def __getitem__(self, index):
-        if self.is_train:
-            return (self.patches[index],)
-        else:
-            # For testing, return as dict
-            return {self.image_key: self.patches[index]}
+    data_list = get_data_list(root_dir, image_key=image_key, is_train=is_train)
+    transforms = get_transforms(is_train=is_train, image_key=image_key)
+
+    ds = CacheDataset(
+        data=data_list,
+        transform=transforms,
+        cache_rate=cache_rate,
+        num_workers=num_workers,
+    )
+
+    loader = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=is_train,       # shuffle only for training
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        collate_fn=custom_collate,
+    )
+
+    return ds, loader
+
+
+
+def get_data_list_with_masks(root_dir: str, image_key: str = "image", is_train: bool = True) -> List[dict]:
+    """
+    Generates a list of dictionaries containing file paths for images and their masks.
+    Masks are loaded from root_dir/mask/<same_filename> regardless of train/test split.
+    """
+    data_list = []
+    mask_dir = os.path.join(root_dir, "mask")
+
+    if is_train:
+        normal_dir = os.path.join(root_dir, "train", "NORMAL")
+        image_files = sorted(glob.glob(os.path.join(normal_dir, "*.nii.gz")))
+        for img_path in image_files:
+            filename = os.path.basename(img_path)
+            mask_path = os.path.join(mask_dir, filename)
+            data_list.append({
+                image_key: img_path,
+                "mask": mask_path,
+                "label": "good",
+                "filename": filename,
+            })
+    else:
+        normal_dir = os.path.join(root_dir, "test2", "NORMAL")
+        abnormal_dir = os.path.join(root_dir, "test2", "ABNORMAL")
+
+        normal_images = sorted(glob.glob(os.path.join(normal_dir, "*.nii.gz")))
+        for img_path in normal_images:
+            filename = os.path.basename(img_path)
+            mask_path = os.path.join(mask_dir, filename)
+            data_list.append({
+                image_key: img_path,
+                "mask": mask_path,
+                "label": "good",
+                "filename": filename,
+            })
+
+        abnormal_images = sorted(glob.glob(os.path.join(abnormal_dir, "*.nii.gz")))
+        for img_path in abnormal_images:
+            filename = os.path.basename(img_path)
+            mask_path = os.path.join(mask_dir, filename)
+            data_list.append({
+                image_key: img_path,
+                "mask": mask_path,
+                "label": "defective",
+                "filename": filename,
+            })
+
+    return data_list
+
+
+def get_transforms_mask(is_train: bool = True, image_key: str = "image"):
+    """
+    Returns MONAI transforms pipeline.
+    - Image: resized trilinear + intensity scaled to [-1, 1]
+    - Mask:  resized nearest-neighbor, no intensity scaling
+    """
+    base_transforms = [
+        LoadImaged(keys=[image_key, "mask"]),
+        EnsureChannelFirstd(keys=[image_key, "mask"]),
+        # Image: trilinear interpolation
+        Resized(keys=[image_key], spatial_size=[128, 128, 128], mode="trilinear"),
+        # Mask: nearest-neighbor to preserve label integers
+        Resized(keys=["mask"], spatial_size=[128, 128, 128], mode="nearest"),
+        ScaleIntensityRangePercentilesd(
+            keys=[image_key],
+            lower=0.5,
+            upper=99.5,
+            b_min=-1.0,
+            b_max=1.0,
+            clip=True,
+        ),
+        EnsureTyped(keys=[image_key], dtype=torch.float32),
+        EnsureTyped(keys=["mask"], dtype=torch.long),
+    ]
+
+    if is_train:
+        augmentation_transforms = [
+            # Apply flips and rotations consistently to both image and mask
+            RandFlipd(keys=[image_key, "mask"], prob=0.5, spatial_axis=0),
+            RandFlipd(keys=[image_key, "mask"], prob=0.5, spatial_axis=1),
+            RandFlipd(keys=[image_key, "mask"], prob=0.5, spatial_axis=2),
+            RandRotate90d(keys=[image_key, "mask"], prob=0.5, spatial_axes=(0, 1)),
+        ]
+        return Compose(base_transforms + augmentation_transforms)
+
+    return Compose(base_transforms)
+
+
+def SHOMRI_with_mask(
+    root_dir: str,
+    batch_size: int,
+    image_key: str = "image",
+    is_train: bool = True,
+    num_workers: int = 4,
+    cache_rate: float = 1.0,
+):
+    def custom_collate(batch):
+        return {
+            "image":    pad_list_data_collate([b["image"] for b in batch]),
+            "mask":     pad_list_data_collate([b["mask"]  for b in batch]),
+            "label":    [b["label"]    for b in batch],
+            "filename": [b["filename"] for b in batch],
+        }
+
+    """
+    Builds a MONAI CacheDataset and DataLoader.
+
+    Args:
+        root_dir:    Root directory of the dataset.
+        batch_size:  Batch size for the DataLoader.
+        image_key:   Key used for images in the data dicts.
+        is_train:    Whether to build the training set (with augmentation) or test set.
+        num_workers: Number of DataLoader worker processes.
+        cache_rate:  Fraction of data to cache in RAM (1.0 = full cache).
+    """
+    data_list = get_data_list_with_masks(root_dir, image_key=image_key, is_train=is_train)
+    transforms = get_transforms_mask(is_train=is_train, image_key=image_key)
+
+    ds = CacheDataset(
+        data=data_list,
+        transform=transforms,
+        cache_rate=cache_rate,
+        num_workers=num_workers,
+    )
+
+    loader = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=is_train,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        collate_fn=custom_collate,
+    )
+
+    return ds, loader
