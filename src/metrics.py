@@ -12,8 +12,7 @@ def metric(labels_list, predictions, anomaly_map_list, gt_list):
     optimal_threshold = thresholds[optimal_threshold_index]
     # pixel_auroc = compute_pixel_auroc(anomaly_map_list, gt_list)
     print('AUROC: ({:.1f})'.format(image_auroc*100)) # ,pixel_auroc*100))
-    print(optimal_threshold)
-        
+    
     return optimal_threshold, image_auroc #, pixel_auroc
 
 def compute_pixel_auroc(anomaly_map_list, gt_list):
