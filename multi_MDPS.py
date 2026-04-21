@@ -24,7 +24,7 @@ def mdps(args):
         n_heads=4,
         in_channels=config.data.imput_channel
     )
-    checkpoint = torch.load(os.path.join(os.getcwd(), config.model.checkpoint_dir, config.data.category, str(config.model.ckpt)))
+    checkpoint = torch.load(os.path.join(os.getcwd(), config.model.checkpoint_dir, config.data.ckpt_category, str(config.model.ckpt)))
     unet.load_state_dict(checkpoint)  
     unet = torch.nn.DataParallel(unet)  
     unet.to(config.model.device)
@@ -68,7 +68,7 @@ def mdps(args):
                 anomaly_batch = []
                 data = data.to(config.model.device)
                 test_steps = torch.Tensor([config.model.test_steps]).type(torch.int64).to(config.model.device)
-                at = compute_alpha( test_steps.long(),config)
+                at = compute_alpha(test_steps.long(),config)
                 noisy_image = at.sqrt() * data + (1- at).sqrt() * torch.randn_like(data).to('cuda')
                 seq = range(0 , config.model.test_steps, config.model.skip)
                 for i in range(0,config.model.test_repeat):
@@ -83,10 +83,6 @@ def mdps(args):
                     transforms.CenterCrop((224)), 
                 ]) 
                 
-                # if config.data.name == 'SHOMRI':
-                #     anomaly_map = transform(anomaly_map)
-                #     targets = transform(targets)
-
                 anomaly_map_list.append(anomaly_map)
                 gt_list.append(labels)
                 for pred, label in zip(anomaly_map, labels):
@@ -154,10 +150,6 @@ def mdps(args):
                 transform = transforms.Compose([
                     transforms.CenterCrop((224)), 
                 ])
-
-                # if config.data.name == 'SHOMRI':
-                #     anomaly_map = transform(anomaly_map)
-                #     targets = transform(targets)
                 
                 anomaly_map_list.append(anomaly_map)
                 binary_labels = torch.tensor(
@@ -166,14 +158,16 @@ def mdps(args):
                 gt_list.append(binary_labels)
                 for pred, label in zip(anomaly_map, labels):
                     labels_list.append(0 if label == 'good' else 1)
-                    k = 500 
+                    k = 5000 
                     pred = pred.reshape(1,-1)
-                    pred = F.softmax(pred, dim=1)
+                    # pred = F.softmax(pred, dim=1)
                     k_max, idx = pred.topk(k, largest=True)
                     score = torch.sum(k_max)
+                    print(score)
                     predictions.append(score.item())
                     
     threshold,_, = metric(labels_list, predictions, anomaly_map_list, gt_list)
+    print(threshold)
 
     
 def parse_args():

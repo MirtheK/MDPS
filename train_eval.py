@@ -125,9 +125,6 @@ def reconstruct_from_patches_3d(patches, locations, volume_shape, patch_size, st
     if stride is None:
         stride = patch_size
 
-    # Strip MONAI MetaTensor to plain Tensor.
-    # MetaTensor's __torch_function__ dispatch causes IndexError when mixed
-    # with plain torch.zeros accumulators.
     if type(patches) is not torch.Tensor:
         patches = patches.as_tensor()
 
