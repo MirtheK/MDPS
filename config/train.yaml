@@ -1,13 +1,13 @@
 data:
   name: 'SHOMRI'
   data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
-  category: 'long_train' #"run_check" #
+  category: "testStep400_w0_eta1_skip10_lr_3e-5"
   
   # Training patches
   image_size: 128
   patch_size: [64, 64, 64]
   patches_per_volume: 4
-  batch_size: 4
+  batch_size: 8
   imput_channel: 1
   
   # Inference settings
@@ -16,29 +16,29 @@ data:
   
 model:
   device: 'cuda'
-  epochs: 3000
+  epochs: 100
   epochs_checkpoint: 20
-  eval_frequency: 10  # Evaluate more frequently in early training
+  eval_frequency: 20  # Evaluate more frequently in early training
   resnet: resnet50
   
-  learning_rate: 0.0001
-  weight_decay: 0.0001
-  num_workers: 4
+  learning_rate: 3e-5
+  weight_decay:  0.05
+  num_workers: 8
   
   # Diffusion parameters
   diffusion_steps: 1000
   beta_start: 0.0001
-  beta_end: 0.008
+  beta_end: 0.02
   eta : 1
   
   # Inference parameters
-  test_steps: 200
+  test_steps: 400
   skip: 20
   test_repeat: 5  
   mask_steps: 50        # smaller than test_steps; 0 = disable masking
   skip_mask: 10
-  w_mask: 10              # guidance scale for stage 1
-  w: 100
+  w_mask: 0              # guidance scale for stage 1
+  w: 0
   mask_repeat: 1
   mask0_thresholds: 0.15  # lambda in Eq. 20; tune between 0.3-0.7
 

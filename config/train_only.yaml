@@ -1,13 +1,13 @@
 data:
   name: 'SHOMRI'
   data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
-  category: 'default_only_train' #"run_check" #
+  category: "cosine_noise_schedule"
   
   # Training patches
   image_size: 128
   patch_size: [64, 64, 64]
   patches_per_volume: 4
-  batch_size: 4
+  batch_size: 8
   imput_channel: 1
   
   # Inference settings
@@ -18,10 +18,10 @@ data:
 model:
   checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI
   resnet: resnet50
-  learning_rate: 3e-4 
+  learning_rate: 3e-5 
   weight_decay: 0.05 
-  epochs: 2000 
-  epochs_checkpoint: 100
+  epochs: 100 
+  epochs_checkpoint: 10
   diffusion_steps: 1000
   beta_start : 0.0001
   beta_end : 0.02 

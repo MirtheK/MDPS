@@ -30,15 +30,17 @@
 data:
   name: 'SHOMRI'
   data_dir: '/projects/prjs1633/anomaly_detection/SHOMRI/'
-  category: 'default_only_train'
+  ckpt_category: 'default_only_train'
+  category: 'testStep700_w0_eta1_skip10_lr_3e-5'
   patch_size: [64, 64, 64] 
-  patches_per_volume: 4
+  # stride: 16
+  # patches_per_volume: 4
   image_size: 64 
   imput_channel: 1
   batch_size: 8
   
-  inference_stride: [64, 64, 64] 
-  inference_patch_batch_size: 8
+  # inference_stride: [64, 64, 64] 
+  # inference_patch_batch_size: 8
 
   save_dir: /projects/prjs1633/evaluation_results
   
@@ -47,20 +49,26 @@ model:
   checkpoint_dir: /projects/prjs1633/checkpoints/SHOMRI  
   resnet: resnet50
   weight_decay: 0.05 
-  ckpt : 400 
-  eta : 7
+  ckpt : 300 
+  eta : 1
   num_workers: 4
 
+  # Noise Schedule
   beta_start: 0.0001
-  beta_end: 0.008
-  
-  w_mask : 0
-  w : 100
+  beta_end: 0.02 
+
+  # Number of steps need for pure noise
   diffusion_steps: 1000
-  mask_steps: 200
-  test_steps: 200 
-  skip : 20   
-  skip_mask: 20
+
+  # Number of steps to partial diffusion point
+  mask_steps: 700
+  test_steps: 700 
+ 
+  w_mask : 0
+  w : 0
+
+  skip : 10   
+  skip_mask: 10
   mask0_thresholds: 0.08
   mask_repeat : 1
   test_repeat : 1
